@@ -160,7 +160,7 @@ class PitchEvaluatorTest {
 
     @Test
     fun `the result carries the evaluator version`() {
-        assertEquals(1, PerformanceEvaluator.evaluate(score, emptyList(), timeline, startedAt).evaluatorVersion)
+        assertEquals(PerformanceEvaluator.EVALUATOR_VERSION, PerformanceEvaluator.evaluate(score, emptyList(), timeline, startedAt).evaluatorVersion)
     }
 
     @Test

@@ -1,8 +1,12 @@
 package dev.simonmartineau.keysight.notation
 
 import dev.simonmartineau.keysight.Fixtures
+import dev.simonmartineau.keysight.evaluation.Continuity
 import dev.simonmartineau.keysight.evaluation.NoteOutcome
+import dev.simonmartineau.keysight.evaluation.NoteTiming
 import dev.simonmartineau.keysight.evaluation.PlayedNote
+import dev.simonmartineau.keysight.evaluation.RhythmResult
+import dev.simonmartineau.keysight.evaluation.TimingJudgement
 import dev.simonmartineau.keysight.score.Pitch
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -67,6 +71,42 @@ class NoteMarksTest {
         val mark = assertIs<NoteMark.Extra>(marks(NoteOutcome.Extra(played(64, 9.0))).single())
 
         assertEquals(layout.timeAxis.last().x, mark.x, 1e-9)
+    }
+
+    @Test
+    fun `matched notes carry their timing unless they were on time`() {
+        val rhythm = RhythmResult(
+            timings = listOf(
+                NoteTiming("n1", 0.0, -0.3, -0.3, TimingJudgement.EARLY),
+                NoteTiming("n2", 1.0, 1.0, 0.0, TimingJudgement.ON_TIME),
+                NoteTiming("n4", 3.0, 3.4, 0.4, TimingJudgement.LATE),
+            ),
+            phaseBeats = 0.0,
+            tempoRatio = null,
+            pauses = emptyList(),
+            continuity = Continuity.GOOD,
+        )
+        val result = noteMarks(
+            layout,
+            score,
+            listOf(
+                NoteOutcome.Correct(score.notes[0], played(60, -0.3)),
+                NoteOutcome.Correct(score.notes[1], played(62, 1.0)),
+                NoteOutcome.WrongPitch(score.notes[3], played(67, 3.4)),
+            ),
+            rhythm,
+        )
+
+        assertEquals(NoteMark.Correct("n1", TimingJudgement.EARLY), result[0])
+        assertEquals(NoteMark.Correct("n2", null), result[1])
+        assertEquals(TimingJudgement.LATE, assertIs<NoteMark.WrongPitch>(result[2]).timing)
+    }
+
+    @Test
+    fun `without a rhythm result no mark carries timing`() {
+        val mark = marks(NoteOutcome.Correct(score.notes[0], played(60, -0.3))).single()
+
+        assertEquals(NoteMark.Correct("n1", null), mark)
     }
 
     @Test

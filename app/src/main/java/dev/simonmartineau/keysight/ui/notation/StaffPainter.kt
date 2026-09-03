@@ -5,9 +5,11 @@ import android.graphics.Typeface
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import dev.simonmartineau.keysight.evaluation.TimingJudgement
 import dev.simonmartineau.keysight.notation.BravuraMetrics
 import dev.simonmartineau.keysight.notation.Element
 import dev.simonmartineau.keysight.notation.Glyph
@@ -36,6 +38,10 @@ private const val MARK_ROW_Y = -5.25
 private const val MARK_SIZE = 1.5
 
 private const val MARK_STROKE = 0.18
+
+/** Side of the early/late triangle beside a mark, and its distance from the mark's edge. */
+private const val TIMING_ARROW_SIZE = 0.6
+private const val TIMING_ARROW_GAP = 0.15
 
 /**
  * Paints a [StaffLayout] at [staffSpace] pixels per staff space, with the layout's origin
@@ -77,7 +83,9 @@ fun DrawScope.drawStaff(
         when (mark) {
             is NoteMark.Correct -> {
                 val anchor = layout.anchors.getValue(mark.noteId)
-                painter.drawMark(OutcomeGlyph.CHECK, anchor.x + anchor.headWidth / 2, colors.correct)
+                val centre = anchor.x + anchor.headWidth / 2
+                painter.drawMark(OutcomeGlyph.CHECK, centre, colors.correct)
+                mark.timing?.let { painter.drawTimingArrow(it, centre, colors.correct) }
             }
             is NoteMark.Missing -> {
                 val anchor = layout.anchors.getValue(mark.noteId)
@@ -92,7 +100,9 @@ fun DrawScope.drawStaff(
                     scale = Spacing.CUE_SCALE,
                     color = colors.wrong,
                 )
-                painter.drawMark(OutcomeGlyph.CROSS, anchor.x + anchor.headWidth / 2, colors.wrong)
+                val centre = anchor.x + anchor.headWidth / 2
+                painter.drawMark(OutcomeGlyph.CROSS, centre, colors.wrong)
+                mark.timing?.let { painter.drawTimingArrow(it, centre, colors.wrong) }
             }
             is NoteMark.Extra -> {
                 val headWidth = painter.drawLooseNote(mark.x, mark.position, mark.alteration, scale = 1.0, color = colors.extra)
@@ -171,5 +181,27 @@ private class GlyphPainter(
             bottom = py(MARK_ROW_Y - half),
         )
         scope.drawOutcomeMark(glyph, color, bounds, (MARK_STROKE * staffSpace).toFloat())
+    }
+
+    /**
+     * A small filled triangle beside the mark centred on [markCenterX]: on its left pointing
+     * left for an early note, on its right pointing right for a late one.
+     */
+    fun drawTimingArrow(timing: TimingJudgement, markCenterX: Double, color: Color) {
+        val half = TIMING_ARROW_SIZE / 2
+        val direction = when (timing) {
+            TimingJudgement.EARLY -> -1.0
+            TimingJudgement.LATE -> 1.0
+            TimingJudgement.ON_TIME -> return
+        }
+        val edge = markCenterX + direction * (MARK_SIZE / 2 + TIMING_ARROW_GAP)
+        val tip = edge + direction * TIMING_ARROW_SIZE
+        val path = Path().apply {
+            moveTo(px(edge), py(MARK_ROW_Y + half))
+            lineTo(px(tip), py(MARK_ROW_Y))
+            lineTo(px(edge), py(MARK_ROW_Y - half))
+            close()
+        }
+        scope.drawPath(path, color)
     }
 }

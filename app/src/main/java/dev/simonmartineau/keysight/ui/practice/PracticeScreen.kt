@@ -40,7 +40,7 @@ import dev.simonmartineau.keysight.attempt.AbortReason
 import dev.simonmartineau.keysight.attempt.AttemptState
 import dev.simonmartineau.keysight.attempt.FlashConfig
 import dev.simonmartineau.keysight.di.AppContainer
-import dev.simonmartineau.keysight.evaluation.NoteOutcome
+import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
 import dev.simonmartineau.keysight.notation.noteMarks
@@ -293,13 +293,21 @@ private fun ResultPanel(result: AttemptState.Result) {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Pitch ${(pitch.accuracy * 100).toInt()}%" + if (pitch.extraCount > 0) ", ${pitch.extraCount} extra" else "",
+            scoreLine(pitch, result.evaluation.rhythm),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
         Box(Modifier.height(StageHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            ExerciseStaff(result.context.exercise.score, pitch.outcomes)
+            ExerciseStaff(result.context.exercise.score, result.evaluation)
+        }
+        remarks(pitch, result.evaluation.rhythm).forEach { remark ->
+            Text(
+                remark,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
@@ -309,9 +317,11 @@ private fun ResultPanel(result: AttemptState.Result) {
  * evaluator's outcomes.
  */
 @Composable
-private fun ExerciseStaff(score: Score, outcomes: List<NoteOutcome>? = null) {
+private fun ExerciseStaff(score: Score, evaluation: EvaluationResult? = null) {
     val layout = remember(score) { ScoreLayoutEngine.layout(score) }
-    val marks = remember(layout, outcomes) { if (outcomes == null) emptyList() else noteMarks(layout, score, outcomes) }
+    val marks = remember(layout, evaluation) {
+        if (evaluation == null) emptyList() else noteMarks(layout, score, evaluation.pitch.outcomes, evaluation.rhythm)
+    }
     Staff(layout, Modifier.fillMaxSize(), marks)
 }
 

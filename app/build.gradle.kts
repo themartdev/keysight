@@ -43,6 +43,11 @@ android {
             isReturnDefaultValues = true
         }
     }
+
+    // The exported schemas double as test assets so MigrationTestHelper can open old versions.
+    sourceSets {
+        getByName("androidTest").assets.directories.add("$projectDir/schemas")
+    }
 }
 
 // Room schemas are checked in so that migrations can be written and tested against the exact

@@ -62,6 +62,7 @@ fun EvaluationResult.toEntity(attemptId: String, evaluatedAtEpochMillis: Long): 
         correctCount = pitch.correctCount,
         expectedCount = pitch.expectedCount,
         extraCount = pitch.extraCount,
+        rhythmAccuracy = rhythm?.accuracy,
         resultJson = keySightJson.encodeToString(EvaluationResult.serializer(), this),
     )
 

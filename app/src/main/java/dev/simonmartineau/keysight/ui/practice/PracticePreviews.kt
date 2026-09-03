@@ -13,11 +13,13 @@ import dev.simonmartineau.keysight.attempt.AbortReason
 import dev.simonmartineau.keysight.attempt.AttemptContext
 import dev.simonmartineau.keysight.attempt.AttemptState
 import dev.simonmartineau.keysight.attempt.FlashConfig
+import dev.simonmartineau.keysight.evaluation.BeatPhase
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.evaluation.NoteOutcome
 import dev.simonmartineau.keysight.evaluation.PerformanceEvaluator
 import dev.simonmartineau.keysight.evaluation.PitchResult
 import dev.simonmartineau.keysight.evaluation.PlayedNote
+import dev.simonmartineau.keysight.evaluation.RhythmAnalysis
 import dev.simonmartineau.keysight.exercise.Exercise
 import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
@@ -86,11 +88,16 @@ private object PreviewData {
     /** One of each outcome: correct, wrong (F sharp for D), missing, an extra A between beats, correct. */
     val outcomes: List<NoteOutcome> = listOf(
         NoteOutcome.Correct(cdef.notes[0], played(60, 0.02)),
-        NoteOutcome.WrongPitch(cdef.notes[1], played(66, 1.0)),
+        NoteOutcome.WrongPitch(cdef.notes[1], played(66, 0.8)),
         NoteOutcome.Missing(cdef.notes[2]),
         NoteOutcome.Extra(played(69, 2.6)),
-        NoteOutcome.Correct(cdef.notes[3], played(65, 3.0)),
+        NoteOutcome.Correct(cdef.notes[3], played(65, 3.7)),
     )
+
+    private val expectedBeats = cdef.notes.associate { it.id to cdef.timeSignature.beatsOf(it.onset) }
+
+    /** The rhythm judgement of [outcomes]: one early, one late, one pause. */
+    val rhythm = RhythmAnalysis.analyse(outcomes, expectedBeats, BeatPhase.estimate(BeatPhase.deviations(outcomes, expectedBeats)))
 
     val ready = AttemptState.Ready(context)
 
@@ -105,7 +112,7 @@ private object PreviewData {
         context,
         startedAtNanos = 0L,
         captured = emptyList(),
-        evaluation = EvaluationResult(PerformanceEvaluator.EVALUATOR_VERSION, PitchResult(outcomes)),
+        evaluation = EvaluationResult(PerformanceEvaluator.EVALUATOR_VERSION, PitchResult(outcomes), rhythm),
     )
 
     val aborted = AttemptState.Aborted(context, AbortReason.MIDI_DISCONNECTED, startedAtNanos = 0L, captured = emptyList())
@@ -178,7 +185,7 @@ private fun StaffPreview(score: Score, outcomes: List<NoteOutcome> = emptyList()
     KeySightTheme {
         Surface {
             Box(Modifier.width(360.dp).height(220.dp)) {
-                Staff(layout, marks = noteMarks(layout, score, outcomes))
+                Staff(layout, marks = noteMarks(layout, score, outcomes, if (outcomes.isEmpty()) null else PreviewData.rhythm))
             }
         }
     }

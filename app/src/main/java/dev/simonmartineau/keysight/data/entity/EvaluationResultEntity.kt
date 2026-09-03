@@ -31,4 +31,6 @@ data class EvaluationResultEntity(
     val expectedCount: Int,
     val extraCount: Int,
     val resultJson: String,
+    /** Null for rows scored by evaluator version 1, which had no rhythm. Added in schema version 2. */
+    val rhythmAccuracy: Double? = null,
 )

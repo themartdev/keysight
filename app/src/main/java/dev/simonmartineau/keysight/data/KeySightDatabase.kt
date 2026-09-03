@@ -24,7 +24,7 @@ import dev.simonmartineau.keysight.data.entity.SessionEntity
         MidiEventEntity::class,
         EvaluationResultEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class KeySightDatabase : RoomDatabase() {
@@ -37,6 +37,8 @@ abstract class KeySightDatabase : RoomDatabase() {
         const val NAME = "keysight.db"
 
         fun build(context: Context): KeySightDatabase =
-            Room.databaseBuilder(context.applicationContext, KeySightDatabase::class.java, NAME).build()
+            Room.databaseBuilder(context.applicationContext, KeySightDatabase::class.java, NAME)
+                .addMigrations(*MIGRATIONS)
+                .build()
     }
 }

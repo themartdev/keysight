@@ -3,7 +3,7 @@
 Android sight-reading trainer built around the Flash Sight Reading mechanic: a short passage is
 shown during a metronome count-in, hidden exactly when the performance starts, and the MIDI
 performance is scored.
-The product plan lives outside the repo at `~/adaptive-sight-reading.md`.
+The product plan is `docs/adaptive-sight-reading.md`; its milestone ladder drives the rounds.
 
 ## Layout
 
@@ -17,10 +17,12 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `AttemptController` (the coroutine that drives it), `AttemptHistory` and `AttemptRecord`.
 - `audio/` `ClickSynth` and `ClickTrack` (pure PCM on a frame line), `Metronome`, and
   `AudioTrackMetronome`, which anchors beat 0 to the audio timestamp.
-- `evaluation/` `PlayedNotes` (MIDI to notes on the beat line), `PitchAlignment`,
-  `PerformanceEvaluator` with `EVALUATOR_VERSION`.
+- `evaluation/` `PlayedNotes` (MIDI to notes on the beat line), `NoteAlignment` (edit distance
+  over pitch and onset), `BeatPhase` (the player's lean on the click, bounded), `RhythmAnalysis`
+  (timing, tempo ratio, pauses, continuity), `PerformanceEvaluator` with `EVALUATOR_VERSION`.
 - `settings/` `FlashSettings` and `ThemeSettings` (system, light, dark), SharedPreferences-backed.
-- `data/` Room: entities, DAOs, `KeySightDatabase`, `RoomAttemptHistory`, and the pure mappers.
+- `data/` Room: entities, DAOs, `KeySightDatabase` (schema version 2, `Migrations.kt`),
+  `RoomAttemptHistory`, and the pure mappers.
 - `notation/` the pure layout engine: `StaffPosition`, `Glyph` (SMuFL codepoints),
   `BravuraMetrics`, `ScoreLayoutEngine` producing a `StaffLayout` in staff-space units, and
   `noteMarks`, the one place evaluation outcomes meet notation.

@@ -85,7 +85,19 @@ class MappersTest {
         assertEquals(4, entity.expectedCount)
         assertEquals(0, entity.extraCount)
         assertEquals(0.25, entity.pitchAccuracy)
+        assertEquals(evaluation.rhythm!!.accuracy, entity.rhythmAccuracy)
         assertEquals(evaluation, entity.toResult())
+    }
+
+    @Test
+    fun `a version 1 result decodes without rhythm`() {
+        val json = """{"evaluatorVersion":1,"pitch":{"outcomes":[]}}"""
+
+        val result = keySightJson.decodeFromString(EvaluationResult.serializer(), json)
+
+        assertEquals(1, result.evaluatorVersion)
+        assertEquals(null, result.rhythm)
+        assertEquals(null, result.toEntity("a", 0).rhythmAccuracy)
     }
 
     @Test

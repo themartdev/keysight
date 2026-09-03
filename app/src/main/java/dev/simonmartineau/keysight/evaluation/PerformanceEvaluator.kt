@@ -9,11 +9,18 @@ import dev.simonmartineau.keysight.timing.AttemptTimeline
  *
  * The evaluator is deterministic: it has no clock and no state, so the same stored attempt
  * always yields the same result, and [EVALUATOR_VERSION] changes whenever the judgement would.
+ *
+ * Alignment and beat phase depend on each other, so they run in two passes: align at phase 0,
+ * estimate the phase from the matched notes, align again with it, and take the phase of that
+ * alignment as final. Rhythm is then judged against the final phase.
  */
 object PerformanceEvaluator {
 
-    /** Version 1: pitch correctness by order-based alignment. */
-    const val EVALUATOR_VERSION = 1
+    /**
+     * Version 1: pitch correctness by order-based alignment.
+     * Version 2: alignment weighs onset time, and rhythm is scored after beat-phase estimation.
+     */
+    const val EVALUATOR_VERSION = 2
 
     /** How far ahead of beat 0 a note may land and still count as the first note. */
     const val EARLY_GRACE_BEATS = 0.5
@@ -25,7 +32,18 @@ object PerformanceEvaluator {
         startedAtNanos: Long,
     ): EvaluationResult {
         val played = PlayedNotes.extract(events, timeline, startedAtNanos, EARLY_GRACE_BEATS)
-        val outcomes = PitchAlignment.align(score.notesInPerformanceOrder, played)
-        return EvaluationResult(EVALUATOR_VERSION, PitchResult(outcomes))
+        val expected = score.notesInPerformanceOrder.map { ExpectedNote(it, timeline.beatsOf(it.onset)) }
+        val expectedBeats = expected.associate { it.note.id to it.beat }
+
+        val firstPass = NoteAlignment.align(expected, played, phaseBeats = 0.0)
+        val firstPhase = BeatPhase.estimate(BeatPhase.deviations(firstPass, expectedBeats))
+        val outcomes = NoteAlignment.align(expected, played, firstPhase)
+        val phase = BeatPhase.estimate(BeatPhase.deviations(outcomes, expectedBeats))
+
+        return EvaluationResult(
+            evaluatorVersion = EVALUATOR_VERSION,
+            pitch = PitchResult(outcomes),
+            rhythm = RhythmAnalysis.analyse(outcomes, expectedBeats, phase),
+        )
     }
 }

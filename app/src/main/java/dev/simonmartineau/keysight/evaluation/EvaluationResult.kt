@@ -43,10 +43,12 @@ data class PitchResult(val outcomes: List<NoteOutcome>) {
  * The evaluated outcome of one attempt.
  *
  * [evaluatorVersion] travels with the result so that attempts scored by an older evaluator can
- * be recognised and re-scored from their retained MIDI.
+ * be recognised and re-scored from their retained MIDI. [rhythm] is null only for results
+ * stored by evaluator version 1, which did not score it.
  */
 @Serializable
 data class EvaluationResult(
     val evaluatorVersion: Int,
     val pitch: PitchResult,
+    val rhythm: RhythmResult? = null,
 )
