@@ -19,14 +19,21 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `AudioTrackMetronome`, which anchors beat 0 to the audio timestamp.
 - `evaluation/` `PlayedNotes` (MIDI to notes on the beat line), `PitchAlignment`,
   `PerformanceEvaluator` with `EVALUATOR_VERSION`.
-- `settings/` `FlashSettings`, SharedPreferences-backed.
+- `settings/` `FlashSettings` and `ThemeSettings` (system, light, dark), SharedPreferences-backed.
 - `data/` Room: entities, DAOs, `KeySightDatabase`, `RoomAttemptHistory`, and the pure mappers.
-- `di/` `AppContainer`. `ui/practice/` the one screen, its view model, and the note-name
-  placeholder that stands in for notation.
+- `notation/` the pure layout engine: `StaffPosition`, `Glyph` (SMuFL codepoints),
+  `BravuraMetrics`, `ScoreLayoutEngine` producing a `StaffLayout` in staff-space units, and
+  `noteMarks`, the one place evaluation outcomes meet notation.
+- `di/` `AppContainer`. `ui/notation/` the Compose Canvas renderer (`Staff`, `drawStaff`) that
+  draws a `StaffLayout` with the bundled Bravura font. `ui/practice/` the one screen, its view
+  model, and `PracticePreviews` with one preview per screen state.
+- `app/src/main/res/font/bravura.otf` is Bravura 1.482 (SMuFL, OFL); its licence ships in
+  `app/src/main/assets/licenses/`. Glyph metrics are the table in `BravuraMetrics`, checked
+  against the font file by `BravuraMetricsTest`.
 - `app/src/main/assets/exercises/` the content pack, one JSON `Exercise` per file, validated
   by `BundledExercisesTest` on every unit test run.
 
-Not built yet: staff notation, difficulty adaptation, session summaries.
+Not built yet: difficulty adaptation, session summaries.
 
 ## Build and test
 
@@ -58,13 +65,17 @@ from this environment.
 - The Kotlin, Compose-compiler, serialization-plugin and KSP versions are pinned to whatever AGP
   embeds. Never bump one of them alone; they move with AGP or not at all.
 - New logic goes in a JVM unit test unless it genuinely needs a device.
-  `score`, `midi`, `timing`, `attempt`, `evaluation` and the data mappers have no Android
-  imports; keep it that way so they stay testable on the JVM.
+  `score`, `midi`, `timing`, `attempt`, `evaluation`, `notation` and the data mappers have no
+  Android imports; keep it that way so they stay testable on the JVM.
 - Musical time in the score is integer `Ticks` (960 per quarter note), never a double.
   Doubles are for wall-clock beats in `FlashConfig` and `AttemptTimeline` only.
 - Anything time-related reads from `MonotonicClock` and computes positions from absolute beats.
   Never use `delay` as a source of musical truth, and never introduce a second timer.
 - The evaluator sees `ScoreNote` and `MidiEvent`, never notation. Keep it that way.
+- Notation is laid out in staff spaces, y up from the bottom staff line, by `ScoreLayoutEngine`;
+  only `ui/notation` converts to pixels. Glyphs are placed by their SMuFL origin (baseline, left
+  edge) using the `BravuraMetrics` table, never by eyeballed offsets, and `noteMarks` is the
+  only place evaluation outcomes meet notation.
 - Raw MIDI is never discarded or overwritten: `midi_events` rows are the three raw bytes and a
   timestamp, and attempts snapshot their score and config so history is re-evaluable on its
   own. Evaluations are keyed by `(attemptId, evaluatorVersion)`; bump `EVALUATOR_VERSION`

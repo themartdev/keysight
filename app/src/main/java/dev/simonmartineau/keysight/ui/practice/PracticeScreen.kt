@@ -21,7 +21,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,8 +40,14 @@ import dev.simonmartineau.keysight.attempt.AbortReason
 import dev.simonmartineau.keysight.attempt.AttemptState
 import dev.simonmartineau.keysight.attempt.FlashConfig
 import dev.simonmartineau.keysight.di.AppContainer
+import dev.simonmartineau.keysight.evaluation.NoteOutcome
 import dev.simonmartineau.keysight.midi.MidiConnection
+import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
+import dev.simonmartineau.keysight.notation.noteMarks
+import dev.simonmartineau.keysight.score.Score
 import dev.simonmartineau.keysight.settings.FlashChoices
+import dev.simonmartineau.keysight.settings.ThemeMode
+import dev.simonmartineau.keysight.ui.notation.Staff
 
 @Composable
 fun PracticeScreen(container: AppContainer) {
@@ -47,6 +55,7 @@ fun PracticeScreen(container: AppContainer) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val connection by viewModel.connection.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
+    val theme by viewModel.theme.collectAsStateWithLifecycle()
     val loadError by viewModel.loadError.collectAsStateWithLifecycle()
 
     LifecycleStartEffect(Unit) {
@@ -57,6 +66,7 @@ fun PracticeScreen(container: AppContainer) {
         state = state,
         connection = connection,
         config = config,
+        theme = theme,
         loadError = loadError,
         actions = PracticeActions(
             start = viewModel::start,
@@ -65,6 +75,8 @@ fun PracticeScreen(container: AppContainer) {
             retry = viewModel::retry,
             setPreviewBeats = viewModel::setPreviewBeats,
             setTempo = viewModel::setTempo,
+            setMetronomeDuringAttempt = viewModel::setMetronomeDuringAttempt,
+            setTheme = viewModel::setTheme,
         ),
     )
 }
@@ -76,6 +88,8 @@ class PracticeActions(
     val retry: () -> Unit,
     val setPreviewBeats: (Double) -> Unit,
     val setTempo: (Double) -> Unit,
+    val setMetronomeDuringAttempt: (Boolean) -> Unit,
+    val setTheme: (ThemeMode) -> Unit,
 )
 
 @Composable
@@ -83,6 +97,7 @@ fun PracticeContent(
     state: AttemptState?,
     connection: MidiConnection,
     config: FlashConfig,
+    theme: ThemeMode,
     loadError: String?,
     actions: PracticeActions,
 ) {
@@ -94,9 +109,12 @@ fun PracticeContent(
                 .padding(innerPadding)
                 .padding(horizontal = 24.dp, vertical = 16.dp),
         ) {
-            MidiStatusRow(connection)
-            Spacer(Modifier.height(12.dp))
-            SettingsRow(config, settingsEnabled, actions.setPreviewBeats, actions.setTempo)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                MidiStatusRow(connection, Modifier.weight(1f))
+                ThemeMenu(theme, actions.setTheme)
+            }
+            Spacer(Modifier.height(4.dp))
+            SettingsRow(config, settingsEnabled, actions.setPreviewBeats, actions.setTempo, actions.setMetronomeDuringAttempt)
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -111,14 +129,14 @@ fun PracticeContent(
 }
 
 @Composable
-private fun MidiStatusRow(connection: MidiConnection) {
+private fun MidiStatusRow(connection: MidiConnection, modifier: Modifier = Modifier) {
     val (color, text) = when (connection) {
         MidiConnection.NoDevice -> MaterialTheme.colorScheme.outline to "Connect a MIDI keyboard"
         is MidiConnection.Connecting -> MaterialTheme.colorScheme.secondary to "Connecting to ${connection.deviceName}"
         is MidiConnection.Connected -> MaterialTheme.colorScheme.primary to connection.deviceName
         is MidiConnection.Failed -> MaterialTheme.colorScheme.error to "${connection.deviceName}: ${connection.message}"
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         Box(
             Modifier
                 .size(10.dp)
@@ -135,6 +153,7 @@ private fun SettingsRow(
     enabled: Boolean,
     onPreview: (Double) -> Unit,
     onTempo: (Double) -> Unit,
+    onMetronome: (Boolean) -> Unit,
 ) {
     Column {
         Text("Preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -149,8 +168,45 @@ private fun SettingsRow(
             }
         }
         Spacer(Modifier.height(4.dp))
-        TempoMenu(config.tempoBpm, enabled, onTempo)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            TempoMenu(config.tempoBpm, enabled, onTempo)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "Click while playing",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(8.dp))
+            Switch(checked = config.metronomeDuringAttempt, onCheckedChange = onMetronome, enabled = enabled)
+        }
     }
+}
+
+@Composable
+private fun ThemeMenu(theme: ThemeMode, onTheme: (ThemeMode) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { open = true }) {
+            Text(theme.label())
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            ThemeMode.entries.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(mode.label()) },
+                    onClick = {
+                        open = false
+                        onTheme(mode)
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun ThemeMode.label(): String = when (this) {
+    ThemeMode.SYSTEM -> "System theme"
+    ThemeMode.LIGHT -> "Light theme"
+    ThemeMode.DARK -> "Dark theme"
 }
 
 @Composable
@@ -177,7 +233,7 @@ private fun TempoMenu(tempoBpm: Double, enabled: Boolean, onTempo: (Double) -> U
 private fun Double.beatsLabel(): String = if (this == this.toInt().toDouble()) this.toInt().toString() else this.toString()
 
 /** Keeps the notation area the same height whatever is in it, so nothing jumps when it appears. */
-private val StageHeight = 200.dp
+private val StageHeight = 220.dp
 
 @Composable
 private fun Stage(state: AttemptState?, loadError: String?) {
@@ -199,7 +255,7 @@ private fun Stage(state: AttemptState?, loadError: String?) {
         }
         is AttemptState.CountingIn -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.height(StageHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                if (state.notationVisible) NotationPlaceholder(state.context.exercise.score.toNoteCells())
+                if (state.notationVisible) ExerciseStaff(state.context.exercise.score)
             }
             Spacer(Modifier.height(24.dp))
             BeatIndicator(state.context.timeline, state.startedAtNanos)
@@ -243,9 +299,20 @@ private fun ResultPanel(result: AttemptState.Result) {
         )
         Spacer(Modifier.height(24.dp))
         Box(Modifier.height(StageHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            NotationPlaceholder(result.context.exercise.score.toNoteCells(pitch.outcomes))
+            ExerciseStaff(result.context.exercise.score, pitch.outcomes)
         }
     }
+}
+
+/**
+ * The engraved exercise, laid out once per score and, after an attempt, annotated with the
+ * evaluator's outcomes.
+ */
+@Composable
+private fun ExerciseStaff(score: Score, outcomes: List<NoteOutcome>? = null) {
+    val layout = remember(score) { ScoreLayoutEngine.layout(score) }
+    val marks = remember(layout, outcomes) { if (outcomes == null) emptyList() else noteMarks(layout, score, outcomes) }
+    Staff(layout, Modifier.fillMaxSize(), marks)
 }
 
 @Composable

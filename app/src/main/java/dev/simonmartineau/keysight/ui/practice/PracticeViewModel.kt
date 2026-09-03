@@ -15,6 +15,8 @@ import dev.simonmartineau.keysight.exercise.ExerciseSelector
 import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
 import dev.simonmartineau.keysight.settings.FlashSettings
+import dev.simonmartineau.keysight.settings.ThemeMode
+import dev.simonmartineau.keysight.settings.ThemeSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +33,7 @@ class PracticeViewModel(
     private val midi: MidiDeviceManager,
     private val exercises: ExerciseRepository,
     private val settings: FlashSettings,
+    private val themeSettings: ThemeSettings,
     controllerFactory: (CoroutineScope) -> AttemptController,
     random: Random = Random.Default,
 ) : ViewModel() {
@@ -40,6 +43,7 @@ class PracticeViewModel(
     val state: StateFlow<AttemptState?> = controller.state
     val connection: StateFlow<MidiConnection> = midi.connection
     val config: StateFlow<FlashConfig> = settings.config
+    val theme: StateFlow<ThemeMode> = themeSettings.mode
 
     private val _loadError = MutableStateFlow<String?>(null)
     val loadError: StateFlow<String?> = _loadError.asStateFlow()
@@ -92,6 +96,10 @@ class PracticeViewModel(
 
     fun setTempo(bpm: Double) = updateConfig(settings.config.value.copy(tempoBpm = bpm))
 
+    fun setMetronomeDuringAttempt(enabled: Boolean) = updateConfig(settings.config.value.copy(metronomeDuringAttempt = enabled))
+
+    fun setTheme(mode: ThemeMode) = themeSettings.update(mode)
+
     private fun updateConfig(config: FlashConfig) {
         settings.update(config)
         val current = state.value
@@ -109,6 +117,7 @@ class PracticeViewModel(
                     midi = container.midiDeviceManager,
                     exercises = container.exerciseRepository,
                     settings = container.flashSettings,
+                    themeSettings = container.themeSettings,
                     controllerFactory = container::attemptController,
                 )
             }

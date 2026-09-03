@@ -123,6 +123,13 @@ class AttemptTimelineTest {
     }
 
     @Test
+    fun `the clicks end where the beat indicator goes dark`() {
+        assertEquals(4.0, timeline().clickEndBeat)
+        assertEquals(8.0, timeline(metronomeDuringAttempt = true).clickEndBeat)
+        assertEquals(timeline(metronomeDuringAttempt = true).performanceEndBeat, timeline(metronomeDuringAttempt = true).clickEndBeat)
+    }
+
+    @Test
     fun `a two measure count-in doubles the available preview`() {
         val timeline = timeline(countInMeasures = 2, previewDurationBeats = 6.0)
 

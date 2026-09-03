@@ -70,12 +70,12 @@ data class AttemptTimeline(
     val performanceEndNanos: Long get() = nanosAtBeat(performanceEndBeat)
     val captureEndNanos: Long get() = nanosAtBeat(captureEndBeat)
 
+    /** The beat from which the metronome is silent: the performance start, or its end when it plays through. */
+    val clickEndBeat: Double get() = if (metronomeDuringAttempt) performanceEndBeat else countInBeats
+
     /** Beats on which the metronome sounds. */
     val clickBeats: List<Double>
-        get() {
-            val lastClick = if (metronomeDuringAttempt) performanceEndBeat else countInBeats
-            return generateSequence(0.0) { it + 1.0 }.takeWhile { it < lastClick }.toList()
-        }
+        get() = generateSequence(0.0) { it + 1.0 }.takeWhile { it < clickEndBeat }.toList()
 
     /** Nanoseconds from the attempt start to [beat]. */
     fun nanosAtBeat(beat: Double): Long = (beat * NANOS_PER_MINUTE / tempoBpm).roundToLong()

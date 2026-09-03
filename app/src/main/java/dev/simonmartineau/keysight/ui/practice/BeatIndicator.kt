@@ -20,7 +20,8 @@ import dev.simonmartineau.keysight.timing.AttemptTimeline
 import kotlin.math.floor
 
 /**
- * One dot per beat of the measure, lit on the current count-in beat.
+ * One dot per beat of the measure, lit on the beat the metronome is clicking: the count-in,
+ * and the performance too when the metronome plays through it.
  *
  * It does not tick. Every frame it reads the frame time, which is on the same
  * `System.nanoTime` base as the attempt clock, and derives the beat from the timeline, so
@@ -37,7 +38,7 @@ fun BeatIndicator(timeline: AttemptTimeline, startedAtNanos: Long, modifier: Mod
         }
     }
     val beatsPerMeasure = timeline.timeSignature.beatsPerMeasure
-    val lit = if (beat >= 0 && beat < timeline.countInBeats) beat % beatsPerMeasure else -1
+    val lit = if (beat >= 0 && beat < timeline.clickEndBeat) beat % beatsPerMeasure else -1
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         repeat(beatsPerMeasure) { index ->
             val active = index == lit

@@ -5,6 +5,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 
 private val LightColors = lightColorScheme(
     primary = Indigo,
@@ -32,6 +34,13 @@ private val DarkColors = darkColorScheme(
 )
 
 /**
+ * Whether the app is showing its dark scheme. This follows the player's theme choice, not
+ * the system setting, so anything that picks colours by darkness reads this rather than
+ * `isSystemInDarkTheme`.
+ */
+val LocalDarkTheme = staticCompositionLocalOf { false }
+
+/**
  * Dynamic colour is deliberately not used: the notation and the correct/wrong annotations need a
  * fixed, high-contrast relationship that a wallpaper-derived palette cannot guarantee.
  */
@@ -40,9 +49,11 @@ fun KeySightTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = KeySightTypography,
-        content = content,
-    )
+    CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkColors else LightColors,
+            typography = KeySightTypography,
+            content = content,
+        )
+    }
 }

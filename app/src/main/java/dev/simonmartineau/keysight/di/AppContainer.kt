@@ -14,6 +14,8 @@ import dev.simonmartineau.keysight.exercise.ExerciseRepository
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
 import dev.simonmartineau.keysight.settings.FlashSettings
 import dev.simonmartineau.keysight.settings.SharedPreferencesFlashSettings
+import dev.simonmartineau.keysight.settings.SharedPreferencesThemeSettings
+import dev.simonmartineau.keysight.settings.ThemeSettings
 import dev.simonmartineau.keysight.timing.MonotonicClock
 import dev.simonmartineau.keysight.timing.SystemMonotonicClock
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +50,8 @@ class AppContainer(context: Context) {
     }
 
     val flashSettings: FlashSettings by lazy { SharedPreferencesFlashSettings(appContext) }
+
+    val themeSettings: ThemeSettings by lazy { SharedPreferencesThemeSettings(appContext) }
 
     /** One controller per practice screen; [scope] is the screen's main-thread scope. */
     fun attemptController(scope: CoroutineScope): AttemptController =

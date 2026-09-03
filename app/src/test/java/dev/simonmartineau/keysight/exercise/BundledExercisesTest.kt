@@ -1,6 +1,7 @@
 package dev.simonmartineau.keysight.exercise
 
 import dev.simonmartineau.keysight.data.keySightJson
+import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
@@ -53,6 +54,16 @@ class BundledExercisesTest {
             }
             assertEquals(score.notes.size, score.chordsInPerformanceOrder.size, "${exercise.id} must be monophonic")
             assertEquals(score.totalTicks, score.notes.maxOf { it.end }, "${exercise.id} must fill the measure")
+        }
+    }
+
+    @Test
+    fun `every exercise lays out inside the fixed envelope`() = runTest {
+        repository.all().forEach { exercise ->
+            val layout = ScoreLayoutEngine.layout(exercise.score)
+            assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, layout.top, exercise.id)
+            assertEquals(ScoreLayoutEngine.ENVELOPE_BOTTOM, layout.bottom, exercise.id)
+            assertEquals(exercise.score.notes.map { it.id }.toSet(), layout.anchors.keys, exercise.id)
         }
     }
 
