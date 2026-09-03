@@ -5,10 +5,12 @@ import dev.simonmartineau.keysight.data.entity.MidiEventEntity
 import dev.simonmartineau.keysight.data.entity.RunEntity
 import dev.simonmartineau.keysight.data.entity.SegmentEntity
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
+import dev.simonmartineau.keysight.exercise.ExerciseConfig
 import dev.simonmartineau.keysight.midi.MidiEvent
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunRecord
 import dev.simonmartineau.keysight.run.Segment
+import dev.simonmartineau.keysight.run.SegmentOrigin
 import dev.simonmartineau.keysight.score.Score
 
 /*
@@ -28,6 +30,7 @@ fun RunRecord.toEntity(): RunEntity = RunEntity(
     abortReason = abortReason,
     tempoBpm = config.tempoBpm,
     configJson = keySightJson.encodeToString(RunConfig.serializer(), config),
+    seed = seed,
 )
 
 fun RunRecord.toSegmentEntities(): List<SegmentEntity> = segments.mapIndexed { index, segment -> segment.toEntity(id, index + 1) }
@@ -38,11 +41,23 @@ fun Segment.toEntity(runId: String, segmentIndex: Int): SegmentEntity = SegmentE
     id = segmentId(runId, segmentIndex),
     runId = runId,
     segmentIndex = segmentIndex,
-    exerciseId = exerciseId,
+    exerciseId = (origin as? SegmentOrigin.Bundled)?.exerciseId,
     scoreJson = keySightJson.encodeToString(Score.serializer(), score),
+    generatorVersion = (origin as? SegmentOrigin.Generated)?.generatorVersion,
+    seed = (origin as? SegmentOrigin.Generated)?.seed,
+    exerciseConfigJson = (origin as? SegmentOrigin.Generated)?.let { keySightJson.encodeToString(ExerciseConfig.serializer(), it.config) },
 )
 
-fun SegmentEntity.toSegment(): Segment = Segment(exerciseId, keySightJson.decodeFromString(Score.serializer(), scoreJson))
+/** A row with the generator columns is a generated segment; one with only an exercise id is bundled content. */
+fun SegmentEntity.toSegment(): Segment {
+    val origin = when {
+        generatorVersion != null && seed != null && exerciseConfigJson != null ->
+            SegmentOrigin.Generated(generatorVersion, seed, keySightJson.decodeFromString(ExerciseConfig.serializer(), exerciseConfigJson))
+        exerciseId != null -> SegmentOrigin.Bundled(exerciseId)
+        else -> error("segment $id has neither a generator nor an exercise id")
+    }
+    return Segment(origin, keySightJson.decodeFromString(Score.serializer(), scoreJson))
+}
 
 fun RunEntity.toRecord(segments: List<SegmentEntity>, events: List<MidiEventEntity>): RunRecord = RunRecord(
     id = id,
@@ -54,6 +69,7 @@ fun RunEntity.toRecord(segments: List<SegmentEntity>, events: List<MidiEventEnti
     config = keySightJson.decodeFromString(RunConfig.serializer(), configJson),
     segments = segments.sortedBy { it.segmentIndex }.map { it.toSegment() },
     events = events.map { it.toMidiEvent() },
+    seed = seed,
 )
 
 fun MidiEvent.toEntity(runId: String): MidiEventEntity = MidiEventEntity(

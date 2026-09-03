@@ -5,13 +5,20 @@ import dev.simonmartineau.keysight.SECOND_NANOS
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.evaluation.PerformanceEvaluator
 import dev.simonmartineau.keysight.evaluation.PitchResult
+import dev.simonmartineau.keysight.exercise.Accompaniment
+import dev.simonmartineau.keysight.exercise.ExerciseConfig
+import dev.simonmartineau.keysight.exercise.ExerciseGenerator
+import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiEvent
 import dev.simonmartineau.keysight.run.AbortReason
+import dev.simonmartineau.keysight.run.GeneratedSegmentSource
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunRecord
 import dev.simonmartineau.keysight.run.RunStatus
-import dev.simonmartineau.keysight.run.Segment
+import dev.simonmartineau.keysight.run.SegmentOrigin
+import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
+import dev.simonmartineau.keysight.score.Score
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -37,7 +44,7 @@ class MappersTest {
         status = RunStatus.COMPLETED,
         abortReason = null,
         config = run.config,
-        segments = listOf(Segment("m01", Fixtures.cdef), Segment("m07", Fixtures.gfed)),
+        segments = listOf(Fixtures.segment("m01", Fixtures.cdef), Fixtures.segment("m07", Fixtures.gfed)),
         events = events,
     )
 
@@ -59,6 +66,33 @@ class MappersTest {
         assertTrue(rows.all { it.runId == "run-1" })
         assertTrue(rows.all { it.scoreJson.contains("\"measureCount\":1") })
         assertEquals(Fixtures.gfed, rows[1].toSegment().score)
+    }
+
+    @Test
+    fun `a generated segment stores its generator version, seed and config beside its score`() {
+        val config = ExerciseConfig(KeySignature(2), Hands.BOTH, Accompaniment.HELD_NOTE)
+        val generated = GeneratedSegmentSource(runSeed = 7L, config).next(2, firstIndex = 1)
+        val stored = record.copy(segments = generated, seed = 7L)
+
+        val rows = stored.toSegmentEntities()
+        val origin = generated[1].origin as SegmentOrigin.Generated
+
+        assertNull(rows[1].exerciseId)
+        assertEquals(ExerciseGenerator.GENERATOR_VERSION, rows[1].generatorVersion)
+        assertEquals(origin.seed, rows[1].seed)
+        assertEquals(config, keySightJson.decodeFromString(ExerciseConfig.serializer(), rows[1].exerciseConfigJson!!))
+        assertEquals(generated[1].score, keySightJson.decodeFromString(Score.serializer(), rows[1].scoreJson))
+        assertEquals(7L, stored.toEntity().seed)
+        assertEquals(stored, stored.roundTrip())
+        assertNull(record.toEntity().seed)
+        assertNull(record.toSegmentEntities().first().generatorVersion)
+    }
+
+    @Test
+    fun `a row with neither origin is a defect, not a segment`() {
+        val row = record.toSegmentEntities().first().copy(exerciseId = null)
+
+        assertFailsWith<IllegalStateException> { row.toSegment() }
     }
 
     @Test

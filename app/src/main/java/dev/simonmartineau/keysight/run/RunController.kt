@@ -147,7 +147,7 @@ class RunController(
         val timeline = running.context.timeline
         val current = timeline.segmentAt(timeline.beatAtNanos(clock.nowNanos() - running.startedAtNanos))
         if (running.context.lastSegment - current >= SegmentSource.SEGMENTS_AHEAD) return
-        val more = source.next(SegmentSource.SEGMENT_BATCH, running.context.segments.last())
+        val more = source.next(SegmentSource.SEGMENT_BATCH, firstIndex = running.context.lastSegment + 1)
         _state.value = RunMachine.reduce(running, RunEvent.Extended(more))
     }
 
@@ -164,6 +164,7 @@ class RunController(
         status = status,
         abortReason = reason,
         config = context.config,
+        seed = context.seed,
         events = captured,
     )
 
@@ -181,6 +182,7 @@ class RunController(
                 config = pending.config,
                 segments = pending.segments,
                 events = pending.events,
+                seed = pending.seed,
             )
             history.record(record, evaluations)
         }
@@ -192,6 +194,7 @@ class RunController(
         val status: RunStatus,
         val abortReason: AbortReason?,
         val config: RunConfig,
+        val seed: Long?,
         val events: List<MidiEvent>,
     )
 

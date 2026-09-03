@@ -11,6 +11,7 @@ import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.RunRecord
 import dev.simonmartineau.keysight.run.RunStatus
 import dev.simonmartineau.keysight.run.Segment
+import dev.simonmartineau.keysight.run.SegmentOrigin
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
 import dev.simonmartineau.keysight.score.Score
@@ -43,7 +44,7 @@ class RoomRunHistoryTest {
         notes = listOf(ScoreNote("n1", SpelledPitch(Step.C, octave = 4), Ticks.ZERO, Ticks.WHOLE)),
     )
 
-    private val segments = listOf(Segment("exercise-1", measure), Segment("exercise-2", measure))
+    private val segments = listOf(Segment(SegmentOrigin.Bundled("exercise-1"), measure), Segment(SegmentOrigin.Bundled("exercise-2"), measure))
 
     private val run = RunContext(segments, RunConfig.DEFAULT.copy(segmentCount = 2))
 

@@ -126,7 +126,8 @@ class RhythmEvaluatorTest {
         val events = performance(c4 to 0.1, g4 to 0.9, e4 to 2.4, f4 to 3.0)
 
         assertEquals(evaluate(events), evaluate(events))
-        assertEquals(4, evaluate(events).segments.single().evaluatorVersion)
+        assertEquals(PerformanceEvaluator.EVALUATOR_VERSION, evaluate(events).segments.single().evaluatorVersion)
+        assertEquals(5, PerformanceEvaluator.EVALUATOR_VERSION)
         assertTrue(evaluate(events).rhythm != null)
     }
 }

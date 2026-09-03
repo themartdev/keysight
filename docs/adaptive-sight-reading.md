@@ -96,18 +96,18 @@ RunConfig
 - length           fixed segment count, or open-ended
 
 ExerciseConfig     what the generator produces, see section 7
-- key
-- staves           right hand, left hand, or both
-- pitchRange per staff
-- noteValues
-- rests
-- maximumInterval
-- chordSize
-- rhythmicPatterns
+- keySignature
+- hands            right hand, left hand, or both
+- accompaniment    with both hands: the other staff rests, or holds a tone of the tonic triad
+- rightHandRange, leftHandRange    spelled in C, so a range is a hand position that moves with the key
+- noteValues       whole, half, quarter; the rhythm vocabulary is every way to fill the measure with them
+- maxInterval      the largest distance between consecutive melody notes, in letters
+- timeSignature
 ```
 
-Only the mode, the lookahead, the length, the key, the staves, and the tempo are exposed in the first UI.
+Only the mode, the lookahead, the length, the key, the hands, the accompaniment, and the tempo are exposed in the UI.
 The rest are generator dimensions the difficulty controller moves on the player's behalf.
+Rests within a measure, dotted values and eighths, chords within a hand, and accidentals against the key are dimensions still to add, each once the layout can draw it.
 
 ---
 
@@ -123,14 +123,14 @@ Built and verified:
 - Room history with raw MIDI, score and config snapshots, evaluations keyed by evaluator version;
 - the grand staff, key signatures, systems and pages, the per-tick mask;
 - the continuous run's presentation: the run timeline with a silent segment 0, the visibility policy and its three presets, the mask on every frame, the cursor, the page turn, the run reducer and controller, bundled measures chained in one key;
-- the continuous run's evaluation: segments committed one beat after they end from a three-segment window, the running beat phase, marks behind the cursor, runs and segments in the database with attempts migrated, the run summary, open-ended runs.
+- the continuous run's evaluation: segments committed one beat after they end from a three-segment window, the running beat phase, marks behind the cursor, runs and segments in the database with attempts migrated, the run summary, open-ended runs;
+- the generator: every segment from an `ExerciseConfig` and a seed, in every key, on either staff or both, with the other hand resting or holding a note; both staves aligned as one stream of chords; seeds and configurations stored per segment and the run seed per run.
 
 Next, in the order of section 13:
 
-1. a seeded exercise generator, key selection, both hands;
-2. the per-segment difficulty controller.
+1. the per-segment difficulty controller.
 
-Then, one generator dimension at a time: eighth notes, rests, accidentals, wider ranges, chords, other meters.
+Then, one generator dimension at a time: eighth notes, rests, accidentals, wider ranges, chords, other meters, and the cadence on the last bar of a fixed-length run.
 
 ---
 
@@ -240,11 +240,14 @@ Content comes from a **generator**: `ExerciseConfig` plus a seed to a `Score`, d
 Principles:
 
 - Generate in C and transpose diatonically into the requested key, so key coverage is free and spelling is consistent.
-- Constrained random walk with a contour, a cadence on the last segment of a fixed-length run, and a small vocabulary of rhythmic patterns per difficulty.
+- Constrained random walk with a contour (steps that carry on in the bar's direction weigh twice the others, and the direction turns at the edge of the range), and a rhythm vocabulary that is every way to fill the measure with the allowed note values, drawn uniformly.
+  A cadence on the last segment of a fixed-length run is a per-segment configuration difference and comes with the controller.
 - Each musical dimension is a generator parameter with fixtures and evaluator tests before the controller may move it.
 - The seed, the generator version, and the parameters are stored with every segment, and so is the resulting score, because generators change and history must re-evaluate on its own.
+  A run has one seed; segment k's seed is derived from it and k, so one stored run seed reproduces the run and every segment reproduces itself.
+- The generator's chance comes from its own SplitMix64 stream, not the platform's random, so a stored seed keeps its meaning across Kotlin versions.
 
-The 18 bundled measures remain as test fixtures and as the interim content for the continuous run before the generator exists, chained in one key.
+The 18 bundled measures remain as test fixtures: the layout engine and the generator's constraints are held to real content.
 
 ---
 
@@ -289,7 +292,7 @@ Packages by concern, all pure JVM except `audio`, `settings`, `data`'s Room laye
 
 ```text
 score/       the canonical model: Ticks, Pitch, SpelledPitch, ScoreNote, Staff, Score
-exercise/    ExerciseConfig, the generator, the repository of bundled fixtures
+exercise/    ExerciseConfig, the seeded generator
 midi/        MidiEvent, MidiMessage, MidiParser
 timing/      MonotonicClock, the run timeline
 run/         RunConfig, VisibilityPolicy, the pure run reducer and its controller
@@ -357,6 +360,7 @@ A **latency calibration** step, tapping along with the click to measure the play
 Run
 - id, startedAt, status, abortReason
 - tempoBpm, configJson          the RunConfig snapshot
+- seed                          the run seed every generated segment's seed derives from
 - clock anchor
 
 Segment
@@ -378,6 +382,7 @@ Invariants:
 - Raw MIDI is never discarded or overwritten.
 - A run's MIDI, its config, and its segments' scores are enough to re-evaluate the run with any evaluator version.
 - Schema changes ship with a migration and a migration test; the move from attempts to runs converted every existing attempt into a run with one segment per measure, its raw MIDI untouched, and dropped only the whole-run evaluations that no segment could own, since evaluations are derived.
+  The generator's columns were added beside the exercise id, which stayed on every segment recorded before.
 
 ---
 
@@ -427,9 +432,11 @@ Evaluation, built:
 
 ### Round 7: the generator
 
-- `ExerciseConfig`, the seeded generator, its constraint tests.
-- Key and staves selection in settings; both hands.
-- Seeds and parameters stored per segment.
+Built:
+
+- `ExerciseConfig`, the seeded generator, its constraint tests over many seeds, every key and every hands.
+- Key, hands and accompaniment in settings; both hands, one at a time or together over a held note; both staves aligned as one stream of chords.
+- Schema version 4: the run seed, and the generator version, seed and configuration per segment.
 - Device check: ten minutes of two-hand Flash in G major without repetition or an unplayable bar.
 
 ### Round 8: the difficulty controller

@@ -1,24 +1,26 @@
 # KeySight
 
-An Android sight-reading trainer built around one mechanic: **Flash Sight Reading**.
+An Android sight-reading trainer built around a masked, continuous score.
 
-A short passage appears during a metronome count-in, disappears exactly when the performance
-begins, and the player performs it from memory while the app captures MIDI and scores the attempt.
-Shortening the preview window is the primary difficulty control, and it is modelled separately
-from how hard the notation itself is.
+A run of one-measure segments is read from pages of systems while a visibility policy decides,
+on every beat, which segments' notes are drawn; the MIDI performance is scored one segment at a
+time behind the cursor.
+Flash Sight Reading, reading a bar and then playing it from memory, is one preset of that policy.
+How much of the score the player may see is the primary difficulty control, and it is modelled
+separately from how hard the notation itself is.
 
-The product direction, scope and rationale live in the product plan kept outside the repo.
+The product plan is `docs/adaptive-sight-reading.md`.
 `CLAUDE.md` describes the package layout and the engineering rules.
 
 ## Status
 
-The complete Flash Sight Reading loop is implemented: a USB MIDI keyboard connects with hot
-plug, an `AudioTrack` metronome counts in and anchors the attempt clock, the passage is shown
-and hidden on the timeline, the performance is captured, scored for pitch, stored with its raw
-MIDI, and the next exercise follows.
-Eighteen one-measure exercises are bundled.
-Notation is a note-name placeholder; staff engraving is the next round, along with difficulty
-adaptation.
+A USB MIDI keyboard connects with hot plug, an `AudioTrack` metronome counts in and anchors the
+run clock, generated measures are engraved with Bravura on a treble, bass or grand staff in any
+key, shown and hidden on the timeline, and the performance is captured, scored for pitch and
+rhythm with both hands aligned as one stream, and stored with its raw MIDI, its seeds and its
+configuration so history re-evaluates on its own.
+Content is generated from a seed and an `ExerciseConfig`; the difficulty controller that moves
+the configuration is the next round.
 The JVM test suite covers everything except the Android shells, which are verified on a device.
 
 ## Building

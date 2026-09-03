@@ -11,7 +11,8 @@ enum class RunStatus { COMPLETED, ABORTED }
  * It is self-contained on purpose: the performed [segments], each with its score, and the run
  * configuration are snapshotted, and [startedAtNanos] anchors the raw event timestamps to the
  * run clock, so an old run can be re-evaluated without the content that produced it. The run's
- * [score] is rebuilt from the segments the way it was read.
+ * [score] is rebuilt from the segments the way it was read. [seed] is the run seed the
+ * segments were generated from, null for a run of bundled content.
  */
 data class RunRecord(
     val id: String,
@@ -23,6 +24,7 @@ data class RunRecord(
     val config: RunConfig,
     val segments: List<Segment>,
     val events: List<MidiEvent>,
+    val seed: Long? = null,
 ) {
     init {
         require((status == RunStatus.ABORTED) == (abortReason != null)) {

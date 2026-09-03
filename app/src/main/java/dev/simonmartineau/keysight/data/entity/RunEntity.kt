@@ -13,7 +13,9 @@ import dev.simonmartineau.keysight.run.RunStatus
  * [configJson] is the run configuration exactly as it stood when the run was performed, and
  * [startedAtNanos] is the run clock anchor for the raw MIDI timestamps, so history stays
  * re-evaluable on its own. The tempo is also a plain column so history can be queried without
- * parsing the snapshot. The segments performed are [SegmentEntity] rows.
+ * parsing the snapshot. The segments performed are [SegmentEntity] rows; [seed] is the run
+ * seed their seeds derive from, null for runs recorded before the generator. Added in schema
+ * version 4.
  */
 @Entity(
     tableName = "runs",
@@ -36,4 +38,5 @@ data class RunEntity(
     val abortReason: AbortReason?,
     val tempoBpm: Double,
     val configJson: String,
+    val seed: Long? = null,
 )

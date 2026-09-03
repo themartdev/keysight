@@ -10,6 +10,7 @@ import dev.simonmartineau.keysight.run.RunState.CountingIn
 import dev.simonmartineau.keysight.run.RunState.Performing
 import dev.simonmartineau.keysight.run.RunState.Ready
 import dev.simonmartineau.keysight.run.RunState.Summary
+import dev.simonmartineau.keysight.run.SegmentOrigin
 import dev.simonmartineau.keysight.score.Pitch
 import dev.simonmartineau.keysight.timing.MonotonicClock
 import dev.simonmartineau.keysight.timing.RunTimeline
@@ -75,9 +76,12 @@ class RunControllerTest {
         var calls = 0
         private var served = 0
 
-        override fun next(count: Int, previous: Segment): List<Segment> {
+        var lastFirstIndex = 0
+
+        override fun next(count: Int, firstIndex: Int): List<Segment> {
             calls++
-            return (1..count).map { Segment("more-${++served}", Fixtures.cdef) }
+            lastFirstIndex = firstIndex
+            return (1..count).map { Fixtures.segment("more-${++served}", Fixtures.cdef) }
         }
     }
 
@@ -150,7 +154,7 @@ class RunControllerTest {
         val (record, evaluations) = rig.history.records.single()
         assertEquals("run-1", record.id)
         assertEquals("session-1", record.sessionId)
-        assertEquals(listOf("segment-1", "segment-2"), record.segments.map { it.exerciseId })
+        assertEquals(listOf("segment-1", "segment-2"), record.segments.map { (it.origin as SegmentOrigin.Bundled).exerciseId })
         assertEquals(RunStatus.COMPLETED, record.status)
         assertEquals(300 * ms, record.startedAtNanos)
         assertEquals(WALL_EPOCH + 300, record.startedAtEpochMillis)
@@ -253,7 +257,7 @@ class RunControllerTest {
         val (record, evaluations) = rig.history.records.single()
         assertEquals(RunStatus.COMPLETED, record.status)
         assertEquals(2, record.score.measureCount)
-        assertEquals(listOf("segment-1"), record.segments.map { it.exerciseId })
+        assertEquals(listOf("segment-1"), record.segments.map { (it.origin as SegmentOrigin.Bundled).exerciseId })
         assertEquals(1, evaluations.size)
     }
 
@@ -275,7 +279,7 @@ class RunControllerTest {
         val (record, evaluations) = rig.history.records.single()
         assertEquals(RunStatus.ABORTED, record.status)
         assertEquals(AbortReason.CANCELLED, record.abortReason)
-        assertEquals(listOf("segment-1"), record.segments.map { it.exerciseId })
+        assertEquals(listOf("segment-1"), record.segments.map { (it.origin as SegmentOrigin.Bundled).exerciseId })
         assertTrue(evaluations.isEmpty())
     }
 
@@ -397,7 +401,7 @@ class RunControllerTest {
         val rig = Rig(this)
         val source = FakeSource()
         val initial = SegmentSource.SEGMENTS_AHEAD + SegmentSource.SEGMENT_BATCH
-        val open = RunContext((1..initial).map { Segment("first-$it", Fixtures.cdef) }, Fixtures.slowConfig.copy(segmentCount = null))
+        val open = RunContext((1..initial).map { Fixtures.segment("first-$it", Fixtures.cdef) }, Fixtures.slowConfig.copy(segmentCount = null), seed = 42L)
         assertFailsWith<IllegalArgumentException> { rig.controller.load(open) }
         rig.controller.load(open, source)
         rig.controller.start()
@@ -412,6 +416,7 @@ class RunControllerTest {
         val extended = assertIs<Performing>(rig.state)
         assertEquals(initial + SegmentSource.SEGMENT_BATCH, extended.context.segments.size)
         assertEquals(1, source.calls)
+        assertEquals(initial + 1, source.lastFirstIndex)
         assertEquals(8, extended.evaluation.committedCount)
         assertTrue(rig.metronome.lastTimeline!!.openEnded)
 

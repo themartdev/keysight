@@ -40,6 +40,7 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.simonmartineau.keysight.di.AppContainer
+import dev.simonmartineau.keysight.exercise.Accompaniment
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.notation.NoteMark
@@ -70,7 +71,6 @@ fun PracticeScreen(container: AppContainer) {
     val config by viewModel.config.collectAsStateWithLifecycle()
     val content by viewModel.content.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
-    val loadError by viewModel.loadError.collectAsStateWithLifecycle()
 
     LifecycleStartEffect(Unit) {
         onStopOrDispose { viewModel.onBackgrounded() }
@@ -82,7 +82,6 @@ fun PracticeScreen(container: AppContainer) {
         config = config,
         content = content,
         theme = theme,
-        loadError = loadError,
         actions = PracticeActions(
             start = viewModel::start,
             stop = viewModel::stop,
@@ -95,6 +94,7 @@ fun PracticeScreen(container: AppContainer) {
             setSegmentCount = viewModel::setSegmentCount,
             setKey = viewModel::setKey,
             setHands = viewModel::setHands,
+            setAccompaniment = viewModel::setAccompaniment,
             setTheme = viewModel::setTheme,
         ),
     )
@@ -112,6 +112,7 @@ class PracticeActions(
     val setSegmentCount: (Int?) -> Unit,
     val setKey: (KeySignature) -> Unit,
     val setHands: (Hands) -> Unit,
+    val setAccompaniment: (Accompaniment) -> Unit,
     val setTheme: (ThemeMode) -> Unit,
 )
 
@@ -126,7 +127,6 @@ fun PracticeContent(
     config: RunConfig,
     content: ContentConfig,
     theme: ThemeMode,
-    loadError: String?,
     actions: PracticeActions,
 ) {
     val settingsShown = state == null || state is RunState.Ready || state.isTerminal
@@ -151,7 +151,7 @@ fun PracticeContent(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
-                Stage(state, loadError)
+                Stage(state)
             }
             ActionBar(state, connection, actions)
         }
@@ -214,6 +214,18 @@ private fun SettingsRow(config: RunConfig, content: ContentConfig, actions: Prac
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             ChoiceMenu(content.keySignature.majorName, KeySignature.ALL, { it.majorName }, actions.setKey)
             ChoiceMenu(content.hands.label, Hands.entries, { it.label }, actions.setHands)
+        }
+        if (content.hands == Hands.BOTH) {
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                Accompaniment.entries.forEach { accompaniment ->
+                    FilterChip(
+                        selected = accompaniment == content.accompaniment,
+                        onClick = { actions.setAccompaniment(accompaniment) },
+                        label = { Text(accompaniment.label) },
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -285,13 +297,9 @@ private fun <T> ChoiceMenu(current: String, choices: List<T>, label: (T) -> Stri
 }
 
 @Composable
-private fun Stage(state: RunState?, loadError: String?) {
+private fun Stage(state: RunState?) {
     when (state) {
-        null -> if (loadError != null) {
-            Text(loadError, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-        } else {
-            CircularProgressIndicator()
-        }
+        null -> CircularProgressIndicator()
         is RunState.Ready -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 RunPage(state.context.score, Modifier.fillMaxSize(), mask = runMaskBeforeStart(state.context.timeline, state.context.policy))

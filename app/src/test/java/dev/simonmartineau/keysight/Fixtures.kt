@@ -1,10 +1,10 @@
 package dev.simonmartineau.keysight
 
-import dev.simonmartineau.keysight.exercise.Exercise
 import dev.simonmartineau.keysight.run.MetronomeMode
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.Segment
+import dev.simonmartineau.keysight.run.SegmentOrigin
 import dev.simonmartineau.keysight.run.VisibilityMode
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Score
@@ -42,8 +42,6 @@ object Fixtures {
         ScoreNote("n4", D4, Ticks.quarters(3), Ticks.QUARTER),
     )
 
-    val exercise = Exercise(id = "cdef", score = cdef, musicalDifficulty = 1)
-
     /** 60 bpm so that one beat is exactly one second; Flash with two beats of lookahead; one performed segment. */
     val slowConfig = RunConfig(
         tempoBpm = 60.0,
@@ -63,7 +61,10 @@ object Fixtures {
 
     /** A run of [segments], each one measure, at [config]. */
     fun run(vararg segments: Score, config: RunConfig = slowConfig): RunContext =
-        RunContext(segments.mapIndexed { index, score -> Segment("segment-${index + 1}", score) }, config.copy(segmentCount = segments.size))
+        RunContext(segments.mapIndexed { index, score -> segment("segment-${index + 1}", score) }, config.copy(segmentCount = segments.size))
+
+    /** A segment of bundled content named [exerciseId]. */
+    fun segment(exerciseId: String, score: Score) = Segment(SegmentOrigin.Bundled(exerciseId), score)
 
     fun oneMeasure(vararg notes: ScoreNote, timeSignature: TimeSignature = TimeSignature.FOUR_FOUR) =
         measures(1, *notes, timeSignature = timeSignature)

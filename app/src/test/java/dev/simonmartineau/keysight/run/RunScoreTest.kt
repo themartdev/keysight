@@ -1,6 +1,7 @@
 package dev.simonmartineau.keysight.run
 
 import dev.simonmartineau.keysight.Fixtures
+import dev.simonmartineau.keysight.exercise.ExerciseConfig
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.ScoreNote
@@ -38,7 +39,9 @@ class RunScoreTest {
         assertFailsWith<IllegalArgumentException> { runScore(listOf(Fixtures.cdef, inG)) }
         assertFailsWith<IllegalArgumentException> { runScore(listOf(Fixtures.cdef, bass)) }
         assertFailsWith<IllegalArgumentException> { runScore(listOf(Fixtures.cdef, two)) }
-        assertFailsWith<IllegalArgumentException> { Segment("x", two) }
+        assertFailsWith<IllegalArgumentException> { Fixtures.segment("x", two) }
+        assertFailsWith<IllegalArgumentException> { SegmentOrigin.Bundled(" ") }
+        assertFailsWith<IllegalArgumentException> { SegmentOrigin.Generated(0, 1L, ExerciseConfig.DEFAULT) }
     }
 
     @Test
@@ -86,17 +89,17 @@ class RunScoreTest {
 
     @Test
     fun `an open-ended context grows as it is extended and keeps its config`() {
-        val open = RunContext(listOf(Segment("a", Fixtures.cdef)), Fixtures.slowConfig.copy(segmentCount = null))
+        val open = RunContext(listOf(Fixtures.segment("a", Fixtures.cdef)), Fixtures.slowConfig.copy(segmentCount = null))
         assertEquals(true, open.timeline.openEnded)
 
-        val extended = open.extended(listOf(Segment("b", Fixtures.gfed), Segment("c", Fixtures.cdef)))
+        val extended = open.extended(listOf(Fixtures.segment("b", Fixtures.gfed), Fixtures.segment("c", Fixtures.cdef)))
 
         assertEquals(3, extended.lastSegment)
         assertEquals(4, extended.timeline.segmentCount)
         assertEquals(4, extended.score.measureCount)
-        assertEquals(listOf("a", "b", "c"), extended.segments.map { it.exerciseId })
+        assertEquals(listOf("a", "b", "c"), extended.segments.map { (it.origin as SegmentOrigin.Bundled).exerciseId })
         assertSame(open, open.extended(emptyList()))
-        assertEquals(listOf(Segment("a", Fixtures.cdef), Segment("b", Fixtures.gfed)), extended.performed(2).segments)
-        assertFailsWith<IllegalArgumentException> { RunContext(listOf(Segment("a", Fixtures.cdef)), Fixtures.slowConfig.copy(segmentCount = 2)) }
+        assertEquals(listOf(Fixtures.segment("a", Fixtures.cdef), Fixtures.segment("b", Fixtures.gfed)), extended.performed(2).segments)
+        assertFailsWith<IllegalArgumentException> { RunContext(listOf(Fixtures.segment("a", Fixtures.cdef)), Fixtures.slowConfig.copy(segmentCount = 2)) }
     }
 }

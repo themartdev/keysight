@@ -109,4 +109,32 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+/**
+ * Version 4: the generator. A run stores the seed its segments derive from, and a segment
+ * stores what reproduces it: the generator version, its seed and its configuration, beside the
+ * score it already kept. A bundled segment keeps its exercise id, so that column becomes
+ * nullable, which SQLite only allows by rebuilding the table; every row is copied as it is and
+ * the new columns are null for everything recorded before. Foreign keys are off while a
+ * migration runs, so dropping the old table does not cascade into the evaluations.
+ */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `runs` ADD COLUMN `seed` INTEGER")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `segments_v4` (`id` TEXT NOT NULL, `runId` TEXT NOT NULL, `segmentIndex` INTEGER NOT NULL, " +
+                "`exerciseId` TEXT, `scoreJson` TEXT NOT NULL, `generatorVersion` INTEGER, `seed` INTEGER, `exerciseConfigJson` TEXT, " +
+                "PRIMARY KEY(`id`), FOREIGN KEY(`runId`) REFERENCES `runs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL(
+            "INSERT INTO `segments_v4` (`id`, `runId`, `segmentIndex`, `exerciseId`, `scoreJson`) " +
+                "SELECT `id`, `runId`, `segmentIndex`, `exerciseId`, `scoreJson` FROM `segments`",
+        )
+        db.execSQL("DROP TABLE `segments`")
+        db.execSQL("ALTER TABLE `segments_v4` RENAME TO `segments`")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_segments_runId` ON `segments` (`runId`)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_segments_runId_segmentIndex` ON `segments` (`runId`, `segmentIndex`)")
+    }
+}
+
+val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)

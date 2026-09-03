@@ -20,7 +20,8 @@ import dev.simonmartineau.keysight.timing.RunTimeline
  * that no earlier commit has consumed. Alignment runs over the window at the previous phase,
  * the residuals of k's matched notes step the phase, and the window is aligned again at the
  * new phase; only k's outcomes are committed. Every played note ends up with exactly one
- * committed outcome, every expected note with exactly one.
+ * committed outcome, every expected note with exactly one. Both staves are aligned together
+ * as chords by onset; an outcome's hand is the expected note's staff.
  */
 object PerformanceEvaluator {
 
@@ -32,8 +33,10 @@ object PerformanceEvaluator {
      * Version 4: segments are committed one at a time from a trailing window, the phase runs
      * from segment to segment with a bounded step, and a note played after its segment was
      * committed is [NoteOutcome.TooLate] rather than an extra.
+     * Version 5: notes with the same onset, on any staff, are aligned as one chord against the
+     * notes struck together, so both hands are judged as one stream.
      */
-    const val EVALUATOR_VERSION = 4
+    const val EVALUATOR_VERSION = 5
 
     /** How far ahead of the first notated beat a note may land and still count as the first note. */
     const val EARLY_GRACE_BEATS = 0.5

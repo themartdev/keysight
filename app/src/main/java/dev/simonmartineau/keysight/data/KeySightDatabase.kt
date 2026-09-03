@@ -27,7 +27,7 @@ import dev.simonmartineau.keysight.data.entity.SessionEntity
         MidiEventEntity::class,
         EvaluationResultEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class KeySightDatabase : RoomDatabase() {

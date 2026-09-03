@@ -5,10 +5,6 @@ import dev.simonmartineau.keysight.audio.AudioTrackMetronome
 import dev.simonmartineau.keysight.audio.Metronome
 import dev.simonmartineau.keysight.data.KeySightDatabase
 import dev.simonmartineau.keysight.data.RoomRunHistory
-import dev.simonmartineau.keysight.data.keySightJson
-import dev.simonmartineau.keysight.exercise.AndroidAssetSource
-import dev.simonmartineau.keysight.exercise.BundledExerciseRepository
-import dev.simonmartineau.keysight.exercise.ExerciseRepository
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
 import dev.simonmartineau.keysight.run.RunController
 import dev.simonmartineau.keysight.run.RunHistory
@@ -46,10 +42,6 @@ class AppContainer(context: Context) {
     val midiDeviceManager: MidiDeviceManager by lazy { MidiDeviceManager(appContext, clock) }
 
     val metronome: Metronome by lazy { AudioTrackMetronome(appContext, clock) }
-
-    val exerciseRepository: ExerciseRepository by lazy {
-        BundledExerciseRepository(AndroidAssetSource(appContext.assets), keySightJson)
-    }
 
     val runSettings: RunSettings by lazy { SharedPreferencesRunSettings(appContext) }
 

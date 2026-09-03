@@ -6,20 +6,17 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.simonmartineau.keysight.di.AppContainer
-import dev.simonmartineau.keysight.exercise.Exercise
-import dev.simonmartineau.keysight.exercise.ExerciseRepository
-import dev.simonmartineau.keysight.exercise.ExerciseSelector
+import dev.simonmartineau.keysight.exercise.Accompaniment
 import dev.simonmartineau.keysight.exercise.Hands
-import dev.simonmartineau.keysight.exercise.adaptedTo
 import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
 import dev.simonmartineau.keysight.run.AbortReason
+import dev.simonmartineau.keysight.run.GeneratedSegmentSource
 import dev.simonmartineau.keysight.run.MetronomeMode
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.RunController
 import dev.simonmartineau.keysight.run.RunState
-import dev.simonmartineau.keysight.run.Segment
 import dev.simonmartineau.keysight.run.SegmentSource
 import dev.simonmartineau.keysight.run.VisibilityMode
 import dev.simonmartineau.keysight.score.KeySignature
@@ -29,9 +26,7 @@ import dev.simonmartineau.keysight.settings.RunSettings
 import dev.simonmartineau.keysight.settings.ThemeMode
 import dev.simonmartineau.keysight.settings.ThemeSettings
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
@@ -40,14 +35,14 @@ import kotlin.random.Random
  * app leaving the foreground aborts a running run, and settings changes rebuild the run that
  * is waiting to start.
  *
- * A run's content is bundled measures chained in one key: the selector picks them, each is
- * adapted to the content settings, and the adaptation always starts from the bundled
- * exercise, never from an already adapted score. An open-ended run starts with a first batch
- * and draws the rest from a [SegmentSource] over the same selector as it goes.
+ * A run's content is generated: a run seed drawn when the run is built and the content
+ * settings' [dev.simonmartineau.keysight.exercise.ExerciseConfig] determine every segment,
+ * so trying the same run again regenerates the same measures and a settings change while the
+ * run is waiting regenerates them under the new configuration. An open-ended run keeps
+ * drawing from the same source as it goes.
  */
 class PracticeViewModel(
     private val midi: MidiDeviceManager,
-    private val exercises: ExerciseRepository,
     private val settings: RunSettings,
     private val contentSettings: ContentSettings,
     private val themeSettings: ThemeSettings,
@@ -63,24 +58,11 @@ class PracticeViewModel(
     val content: StateFlow<ContentConfig> = contentSettings.config
     val theme: StateFlow<ThemeMode> = themeSettings.mode
 
-    private val _loadError = MutableStateFlow<String?>(null)
-    val loadError: StateFlow<String?> = _loadError.asStateFlow()
-
-    private var pack: List<Exercise> = emptyList()
-    private var selector: ExerciseSelector? = null
-
-    /** The bundled exercises the waiting or running run was adapted from, one per initial segment. */
-    private var chosen: List<Exercise> = emptyList()
+    /** The seed of the waiting or running run, from which every segment derives. */
+    private var runSeed: Long = random.nextLong()
 
     init {
-        viewModelScope.launch {
-            pack = runCatching { exercises.all() }.getOrElse {
-                _loadError.value = it.message ?: "could not load the exercises"
-                return@launch
-            }
-            selector = ExerciseSelector(pack, random)
-            next()
-        }
+        load()
         viewModelScope.launch { midi.events.collect(controller::onMidi) }
         viewModelScope.launch {
             midi.connection.collect { connection ->
@@ -101,15 +83,12 @@ class PracticeViewModel(
 
     /** A new run of fresh measures. */
     fun next() {
-        val selector = selector ?: return
-        load(selector.nextRun(initialSegmentCount(), previous = chosen.lastOrNull()))
+        runSeed = random.nextLong()
+        load()
     }
 
-    /** The same measures again, from the start; an open-ended run repeats its first batch. */
-    fun retry() {
-        if (chosen.isEmpty()) return
-        load(chosen)
-    }
+    /** The same measures again, from the start; an open-ended run repeats from its first bar. */
+    fun retry() = load()
 
     fun onBackgrounded() {
         if (controller.isRunning) controller.abort(AbortReason.BACKGROUNDED)
@@ -130,6 +109,8 @@ class PracticeViewModel(
 
     fun setHands(hands: Hands) = updateContent(contentSettings.config.value.copy(hands = hands))
 
+    fun setAccompaniment(accompaniment: Accompaniment) = updateContent(contentSettings.config.value.copy(accompaniment = accompaniment))
+
     fun setTheme(mode: ThemeMode) = themeSettings.update(mode)
 
     private fun updateConfig(config: RunConfig) {
@@ -142,32 +123,21 @@ class PracticeViewModel(
         reloadIfReady()
     }
 
-    /** Rebuilds the waiting run under the new settings, picking new measures when the length changed. */
+    /** Rebuilds the waiting run under the new settings, from the same seed. */
     private fun reloadIfReady() {
-        if (state.value !is RunState.Ready || chosen.isEmpty()) return
-        if (chosen.size == initialSegmentCount()) load(chosen) else next()
+        if (state.value is RunState.Ready) load()
     }
 
     private fun initialSegmentCount(): Int =
         settings.config.value.segmentCount ?: (SegmentSource.SEGMENTS_AHEAD + SegmentSource.SEGMENT_BATCH)
 
-    /** Adapts [bundled] to the content settings, chains them into a run and hands it to the controller. */
-    private fun load(bundled: List<Exercise>) {
-        chosen = bundled
-        val content = contentSettings.config.value
+    /** Generates the run's first segments from the current settings and hands it to the controller. */
+    private fun load() {
         val config = settings.config.value
-        val source = if (config.isOpenEnded) segmentSource(content) else null
-        controller.load(RunContext(bundled.map { it.segment(content) }, config), source)
+        val source = GeneratedSegmentSource(runSeed, contentSettings.config.value.exerciseConfig)
+        val segments = source.next(initialSegmentCount(), firstIndex = 1)
+        controller.load(RunContext(segments, config, runSeed), source.takeIf { config.isOpenEnded })
     }
-
-    /** More measures for an open-ended run, chosen by the selector and adapted like the first ones. */
-    private fun segmentSource(content: ContentConfig) = SegmentSource { count, previous ->
-        val selector = selector ?: return@SegmentSource emptyList()
-        selector.nextRun(count, previous = pack.firstOrNull { it.id == previous.exerciseId }).map { it.segment(content) }
-    }
-
-    private fun Exercise.segment(content: ContentConfig): Segment =
-        Segment(id, adaptedTo(content.keySignature, content.hands, random).score)
 
     override fun onCleared() {
         controller.endSession()
@@ -178,7 +148,6 @@ class PracticeViewModel(
             initializer {
                 PracticeViewModel(
                     midi = container.midiDeviceManager,
-                    exercises = container.exerciseRepository,
                     settings = container.runSettings,
                     contentSettings = container.contentSettings,
                     themeSettings = container.themeSettings,

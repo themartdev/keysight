@@ -1,16 +1,32 @@
 package dev.simonmartineau.keysight.settings
 
+import dev.simonmartineau.keysight.exercise.Accompaniment
+import dev.simonmartineau.keysight.exercise.ExerciseConfig
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.score.KeySignature
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** What the player reads, as opposed to how the flash works: the key and the staves. */
+/**
+ * What the player reads, as opposed to how the run is presented: the key, the staves and, on
+ * the grand staff, what the other hand does. These are the generator dimensions the player
+ * chooses; the rest stay at the generator's defaults until the difficulty controller moves
+ * them.
+ */
 data class ContentConfig(
     val keySignature: KeySignature,
     val hands: Hands,
+    val accompaniment: Accompaniment = Accompaniment.NONE,
 ) {
+    /** The generator configuration of a run read with these settings: the choices over [ExerciseConfig.DEFAULT]. */
+    val exerciseConfig: ExerciseConfig
+        get() = ExerciseConfig.DEFAULT.copy(
+            keySignature = keySignature,
+            hands = hands,
+            accompaniment = if (hands == Hands.BOTH) accompaniment else Accompaniment.NONE,
+        )
+
     companion object {
         val DEFAULT = ContentConfig(KeySignature.C_MAJOR, Hands.RIGHT)
     }

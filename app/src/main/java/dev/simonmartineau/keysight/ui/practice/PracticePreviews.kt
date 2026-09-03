@@ -17,16 +17,20 @@ import dev.simonmartineau.keysight.evaluation.PitchResult
 import dev.simonmartineau.keysight.evaluation.PlayedNote
 import dev.simonmartineau.keysight.evaluation.RhythmAnalysis
 import dev.simonmartineau.keysight.evaluation.RunEvaluation
+import dev.simonmartineau.keysight.exercise.Accompaniment
+import dev.simonmartineau.keysight.exercise.ExerciseConfig
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.notation.Mask
 import dev.simonmartineau.keysight.notation.noteMarks
 import dev.simonmartineau.keysight.run.AbortReason
+import dev.simonmartineau.keysight.run.GeneratedSegmentSource
 import dev.simonmartineau.keysight.run.MetronomeMode
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.RunState
 import dev.simonmartineau.keysight.run.Segment
+import dev.simonmartineau.keysight.run.SegmentOrigin
 import dev.simonmartineau.keysight.run.VisibilityMode
 import dev.simonmartineau.keysight.run.runMask
 import dev.simonmartineau.keysight.score.Clef
@@ -128,18 +132,25 @@ private object PreviewData {
 
     /** Six bars on one staff: three systems on a phone. */
     val run = RunContext(
-        segments = listOf(cdef, gfed, halfThenSteps, cdef, halfThenSteps, gfed).mapIndexed { i, score -> Segment("m$i", score) },
+        segments = listOf(cdef, gfed, halfThenSteps, cdef, halfThenSteps, gfed).mapIndexed { i, score -> Segment(SegmentOrigin.Bundled("m$i"), score) },
         config = config,
     )
 
     val grandStaffRun = RunContext(
         segments = listOf(
-            Segment("g1", grandStaffMeasure(1, Step.G, Step.A, Step.B, Step.C)),
-            Segment("g2", grandStaffMeasure(0, Step.D, Step.C, Step.B, Step.A)),
-            Segment("g3", grandStaffMeasure(0, Step.G, Step.A, Step.B, Step.C)),
-            Segment("g4", grandStaffMeasure(1, Step.C, Step.B, Step.A, Step.G)),
+            Segment(SegmentOrigin.Bundled("g1"), grandStaffMeasure(1, Step.G, Step.A, Step.B, Step.C)),
+            Segment(SegmentOrigin.Bundled("g2"), grandStaffMeasure(0, Step.D, Step.C, Step.B, Step.A)),
+            Segment(SegmentOrigin.Bundled("g3"), grandStaffMeasure(0, Step.G, Step.A, Step.B, Step.C)),
+            Segment(SegmentOrigin.Bundled("g4"), grandStaffMeasure(1, Step.C, Step.B, Step.A, Step.G)),
         ),
         config = config.copy(segmentCount = 4),
+    )
+
+    /** Four generated bars of hands together in G major, seeded so the preview is stable. */
+    val handsTogetherRun = RunContext(
+        segments = GeneratedSegmentSource(runSeed = 7L, ExerciseConfig(KeySignature(1), Hands.BOTH, Accompaniment.HELD_NOTE)).next(4, firstIndex = 1),
+        config = config.copy(segmentCount = 4),
+        seed = 7L,
     )
 
     val connection: MidiConnection = MidiConnection.Connected("Preview keyboard")
@@ -187,6 +198,8 @@ private object PreviewData {
 
     val grandStaffPerforming = RunState.Performing(grandStaffRun, startedAtNanos = 0L, captured = emptyList())
 
+    val handsTogetherReady = RunState.Ready(handsTogetherRun)
+
     val summary = RunState.Summary(
         run,
         startedAtNanos = 0L,
@@ -209,6 +222,7 @@ private object PreviewData {
         setSegmentCount = {},
         setKey = {},
         setHands = {},
+        setAccompaniment = {},
         setTheme = {},
     )
 }
@@ -222,7 +236,6 @@ private fun PreviewScreen(state: RunState?, config: RunConfig = PreviewData.conf
             config = config,
             content = PreviewData.content,
             theme = ThemeMode.SYSTEM,
-            loadError = null,
             actions = PreviewData.actions,
         )
     }
@@ -262,6 +275,10 @@ private fun GrandStaffPreview() = PreviewScreen(PreviewData.grandStaffPerforming
 @Preview(name = "Performing, grand staff, landscape", showBackground = true, widthDp = 800, heightDp = 360)
 @Composable
 private fun GrandStaffLandscapePreview() = PreviewScreen(PreviewData.grandStaffPerforming)
+
+@Preview(name = "Ready, generated, hands together in G", showBackground = true)
+@Composable
+private fun HandsTogetherPreview() = PreviewScreen(PreviewData.handsTogetherReady)
 
 @Preview(name = "Summary", showBackground = true)
 @Composable

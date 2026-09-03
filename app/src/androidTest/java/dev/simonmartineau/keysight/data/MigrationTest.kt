@@ -148,7 +148,41 @@ class MigrationTest {
     }
 
     @Test
-    fun migrate1To3ChainsBothSteps() {
+    fun migrate3To4KeepsSegmentsAndTheirEvaluationsWithTheGeneratorColumnsNull() {
+        helper.createDatabase(TEST_DB, 3).use { db ->
+            db.execSQL("INSERT INTO sessions (id, startedAtEpochMillis, endedAtEpochMillis) VALUES ('s1', 0, NULL)")
+            db.execSQL(
+                "INSERT INTO runs (id, sessionId, startedAtEpochMillis, startedAtNanos, status, abortReason, tempoBpm, configJson) " +
+                    "VALUES ('r1', 's1', 7, 10000000000, 'COMPLETED', NULL, 60.0, ?)",
+                arrayOf(keySightJson.encodeToString(RunConfig.serializer(), runConfig)),
+            )
+            db.execSQL(
+                "INSERT INTO segments (id, runId, segmentIndex, exerciseId, scoreJson) VALUES ('r1:1', 'r1', 1, 'm01', ?), ('r1:2', 'r1', 2, 'm07', ?)",
+                arrayOf(scoreJson(measure(Step.C)), scoreJson(measure(Step.D))),
+            )
+            db.execSQL("INSERT INTO midi_events (runId, timestampNanos, status, data1, data2) VALUES ('r1', 14000000000, 144, 60, 90)")
+            db.execSQL(
+                "INSERT INTO evaluation_results (segmentId, evaluatorVersion, evaluatedAtEpochMillis, pitchAccuracy, " +
+                    "correctCount, expectedCount, extraCount, resultJson, rhythmAccuracy) VALUES ('r1:2', 4, 0, 1.0, 1, 1, 0, ?, 1.0)",
+                arrayOf(evaluationJson),
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 4, true, MIGRATION_3_4)
+
+        assertEquals(listOf("r1:1", "r1:2"), db.strings("SELECT id FROM segments ORDER BY segmentIndex"))
+        assertEquals(listOf("m01", "m07"), db.strings("SELECT exerciseId FROM segments ORDER BY segmentIndex"))
+        assertEquals(listOf(scoreJson(measure(Step.C)), scoreJson(measure(Step.D))), db.strings("SELECT scoreJson FROM segments ORDER BY segmentIndex"))
+        assertEquals(2, db.count("SELECT COUNT(*) FROM segments WHERE generatorVersion IS NULL AND seed IS NULL AND exerciseConfigJson IS NULL"))
+        assertEquals(1, db.count("SELECT COUNT(*) FROM runs WHERE seed IS NULL"))
+        assertEquals(listOf("r1:2"), db.strings("SELECT segmentId FROM evaluation_results"))
+        assertEquals(1, db.count("SELECT COUNT(*) FROM midi_events WHERE runId = 'r1'"))
+        db.execSQL("INSERT INTO segments (id, runId, segmentIndex, exerciseId, scoreJson, generatorVersion, seed, exerciseConfigJson) VALUES ('r1:3', 'r1', 3, NULL, '{}', 1, 5, '{}')")
+        assertEquals(1, db.count("SELECT COUNT(*) FROM segments WHERE exerciseId IS NULL"))
+    }
+
+    @Test
+    fun migrate1To4ChainsEveryStep() {
         helper.createDatabase(TEST_DB, 1).use { db ->
             db.execSQL("INSERT INTO sessions (id, startedAtEpochMillis, endedAtEpochMillis) VALUES ('s1', 0, NULL)")
             db.execSQL(
@@ -158,11 +192,13 @@ class MigrationTest {
             )
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 3, true, MIGRATION_1_2, MIGRATION_2_3)
+        val db = helper.runMigrationsAndValidate(TEST_DB, 4, true, MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 
         assertEquals(listOf("ABORTED"), db.strings("SELECT status FROM runs"))
         assertEquals(listOf("MIDI_DISCONNECTED"), db.strings("SELECT abortReason FROM runs"))
         assertEquals(listOf("a1:1"), db.strings("SELECT id FROM segments"))
+        assertEquals(listOf("m01"), db.strings("SELECT exerciseId FROM segments"))
+        assertEquals(1, db.count("SELECT COUNT(*) FROM segments WHERE seed IS NULL"))
     }
 
     private companion object {

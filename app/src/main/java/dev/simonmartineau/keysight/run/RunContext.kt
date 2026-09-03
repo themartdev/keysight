@@ -8,11 +8,13 @@ import dev.simonmartineau.keysight.timing.RunTimeline
  * schedule. Segment k of the timeline is `segments[k - 1]`; segment 0 is the count-in.
  *
  * An open-ended run's segments are the ones known so far; [extended] adds the next ones as
- * the run goes on, and the score and timeline grow with them.
+ * the run goes on, and the score and timeline grow with them. [seed] is the run seed every
+ * generated segment's seed derives from, null for a run of bundled content.
  */
 data class RunContext(
     val segments: List<Segment>,
     val config: RunConfig,
+    val seed: Long? = null,
 ) {
     init {
         require(segments.isNotEmpty()) { "a run needs a segment" }

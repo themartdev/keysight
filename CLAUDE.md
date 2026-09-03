@@ -13,37 +13,46 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
 - `score/` the canonical music model: `Ticks`, `Pitch`, `SpelledPitch`, `KeySignature`, `Staff`,
   `ScoreNote` (with its staff index), `Score` (a list of staves), and `transposed`, diatonic
   transposition between major keys.
-- `exercise/` an `Exercise` wraps a `Score`; content is bundled, not stored. `adaptedTo` puts a
-  bundled single-voice exercise in the chosen key on the staves the `Hands` setting asks for.
+- `exercise/` the generator: `Hands`, `ExerciseConfig` (key, hands, accompaniment, a range per
+  hand, note values, the largest interval, meter; the musical side of difficulty, one field per
+  dimension the controller may move), `SeededRandom` (SplitMix64, so a seed means the same
+  thing in every Kotlin version) with `segmentSeed`, and `ExerciseGenerator` with
+  `GENERATOR_VERSION`: one measure in C from a config and a seed, a constrained random walk
+  with a contour over a rhythm from the config's vocabulary, then `transposed` into the key.
 - `midi/` `MidiEvent` (raw bytes plus timestamp), `MidiMessage` (decoded), `MidiParser`.
 - `timing/` `MonotonicClock` and `RunTimeline`, every scheduled instant of one run: segment k
   starts at beat `k * beatsPerMeasure`, segment 0 is the count-in, capture ends a tail after the
   last segment.
 - `run/` `RunConfig` (tempo, metronome mode, visibility mode, lookahead, segment count or
   open-ended), `VisibilityPolicy` with the Flash, Read ahead and Open score presets, `runMask`
-  (the policy at a beat as a `Mask`), `Segment`, `runScore` (segments chained into one score
-  with a resting measure 0) and `measureAsScore` (its inverse), `SegmentSource` (where an
-  open-ended run's next segments come from), `RunContext`, `RunState`, `RunEvent`, the pure
+  (the policy at a beat as a `Mask`), `Segment` with its `SegmentOrigin` (generated from a
+  version, seed and config, or a bundled exercise id), `runScore` (segments chained into one
+  score with a resting measure 0) and `measureAsScore` (its inverse), `SegmentSource` (a run's
+  segments by index) and `GeneratedSegmentSource` (the generator over a run seed), `RunContext`
+  (with the run seed), `RunState`, `RunEvent`, the pure
   `RunMachine` reducer that also commits each segment's evaluation at its capture tail,
   `RunController` (the coroutine that drives it and tops up an open-ended run), `RunHistory`
   and `RunRecord`.
 - `audio/` `ClickSynth` and `ClickTrack` (pure PCM on a frame line), `Metronome`, and
   `AudioTrackMetronome`, which anchors beat 0 to the audio timestamp.
 - `evaluation/` `PlayedNotes` (MIDI to notes on the run's beat line), `NoteAlignment` (edit
-  distance over pitch and onset), `BeatPhase` (the player's lean on the click, bounded, and
+  distance over chords by onset, pitch and time, both staves as one stream), `BeatPhase` (the player's lean on the click, bounded, and
   the bounded `step` that lets it run from segment to segment), `RhythmAnalysis` (timing,
   tempo ratio, pauses, continuity), `EvaluationResult` (one segment's judgement),
   `RunEvaluation` (the committed segments, the running phase, and the run-level views the
   summary reads), and `PerformanceEvaluator` with `EVALUATOR_VERSION`: `commit` judges one
   segment from a window of three (the previous segment's missing notes, the segment, the next
   one) once its capture tail has passed, and `evaluate` replays every commit from stored MIDI.
-- `settings/` `RunSettings`, `ContentSettings` (key and hands) and `ThemeSettings` (system,
-  light, dark), SharedPreferences-backed.
-- `data/` Room: entities (`runs`, `segments`, `midi_events` by run, `evaluation_results` by
-  segment and evaluator version, `sessions`), `RunDao` and `SessionDao`, `KeySightDatabase`
-  (schema version 3), `Migrations.kt` (2 to 3 turns every attempt row into a run with one
-  segment per measure, reading both the `FlashConfig` and the `RunConfig` snapshot shapes
-  through the pure `LegacyAttempts.kt`), `RoomRunHistory`, and the pure mappers.
+- `settings/` `RunSettings`, `ContentSettings` (key, hands, accompaniment, and the
+  `ExerciseConfig` they make over the generator's defaults) and `ThemeSettings` (system, light,
+  dark), SharedPreferences-backed.
+- `data/` Room: entities (`runs` with the run seed, `segments` with their origin columns,
+  `midi_events` by run, `evaluation_results` by segment and evaluator version, `sessions`),
+  `RunDao` and `SessionDao`, `KeySightDatabase` (schema version 4), `Migrations.kt` (2 to 3
+  turns every attempt row into a run with one segment per measure, reading both the
+  `FlashConfig` and the `RunConfig` snapshot shapes through the pure `LegacyAttempts.kt`; 3 to
+  4 adds the seed to runs and rebuilds segments with a nullable exercise id and the generator
+  columns), `RoomRunHistory`, and the pure mappers.
 - `notation/` the pure layout engine: `StaffPosition`, `Glyph` (SMuFL codepoints),
   `BravuraMetrics`, `AccidentalState` (when an accidental is written), `ScoreLayoutEngine`
   producing a `SystemLayout` (a row of measures across all staves, justified to a width) and a
@@ -57,11 +66,12 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
 - `app/src/main/res/font/bravura.otf` is Bravura 1.482 (SMuFL, OFL); its licence ships in
   `app/src/main/assets/licenses/`. Glyph metrics are the table in `BravuraMetrics`, checked
   against the font file by `BravuraMetricsTest`.
-- `app/src/main/assets/exercises/` the content pack, one JSON `Exercise` per file, validated
-  by `BundledExercisesTest` on every unit test run.
+- `app/src/test/resources/exercises/` the eighteen hand-written measures of the rounds before
+  the generator, test fixtures only: `BundledMeasuresTest` holds them to the layout envelope
+  and to the generator's constraints (`violations`, the test-side statement of the contract).
 
-Not built yet: the generator, difficulty adaptation and session summaries; the plan's round
-ladder covers them in order.
+Not built yet: difficulty adaptation and session summaries; the plan's round ladder covers
+them in order.
 
 ## Build and test
 
@@ -93,8 +103,8 @@ from this environment.
 - The Kotlin, Compose-compiler, serialization-plugin and KSP versions are pinned to whatever AGP
   embeds. Never bump one of them alone; they move with AGP or not at all.
 - New logic goes in a JVM unit test unless it genuinely needs a device.
-  `score`, `midi`, `timing`, `run`, `evaluation`, `notation` and the data mappers have no
-  Android imports; keep it that way so they stay testable on the JVM.
+  `score`, `exercise`, `midi`, `timing`, `run`, `evaluation`, `notation` and the data mappers
+  have no Android imports; keep it that way so they stay testable on the JVM.
 - Musical time in the score is integer `Ticks` (960 per quarter note), never a double.
   Doubles are for wall-clock beats in `RunConfig`, `VisibilityPolicy` and `RunTimeline` only.
 - A run's score is one `Score` whose measure k is segment k, measure 0 resting; the run's beat
@@ -106,8 +116,19 @@ from this environment.
   is known so far and only the click is endless.
 - Anything time-related reads from `MonotonicClock` and computes positions from absolute beats.
   Never use `delay` as a source of musical truth, and never introduce a second timer.
-- The evaluator sees `ScoreNote` and `MidiEvent`, never notation. Keep it that way. Alignment is
-  monophonic until the generator round; content for two hands stays one voice at a time.
+- The evaluator sees `ScoreNote` and `MidiEvent`, never notation. Keep it that way. Both staves
+  are aligned as one stream of chords: expected notes sharing an onset are a chord, played
+  notes within `NoteAlignment.CHORD_SPREAD_BEATS` of each other are a chord, and an outcome's
+  hand is its expected note's staff. The spread must stay shorter than the shortest note value
+  the generator writes.
+- Content is generated, never curated: a segment is `ExerciseGenerator.generate(config, seed)`,
+  written in C and transposed, and every segment stores its generator version, seed and config
+  beside its score so history stands without the generator. A run has one seed and segment k's
+  seed is `segmentSeed(runSeed, k)`. Bump `GENERATOR_VERSION` whenever the same inputs would
+  produce a different score. A new generator dimension gets its constraint in `violations`, its
+  generator test and, if a judgement changes, its evaluator test before the controller may move
+  it; the layout draws no rests within a measure, no dots and no flags yet, so those dimensions
+  wait for the layout.
 - A segment is committed once, one beat after it ends, and never revised: a commit sees only
   the events that had arrived by then, so a live run and a replay from history agree. Every
   played note gets exactly one committed outcome (a note that arrives after its bar was judged
@@ -140,4 +161,5 @@ from this environment.
 - Nothing device-facing is trusted until it has run on a phone: the metronome anchor, MIDI hot
   plug and the practice screen are verified from Android Studio, not here.
 - Schema export goes to `app/schemas`, which is checked in. Add a migration plus a migration
-  test with every schema change after version 1.
+  test with every schema change after version 1. Foreign keys are off while a migration runs,
+  so a table may be rebuilt without cascading into its dependants.

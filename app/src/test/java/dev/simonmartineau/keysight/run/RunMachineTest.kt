@@ -313,7 +313,7 @@ class RunMachineTest {
         var state = RunMachine.reduce(Ready(open), RunEvent.Start(0))
         assertTrue(open.timeline.openEnded)
 
-        state = RunMachine.reduce(state, RunEvent.Extended(listOf(Segment("segment-4", Fixtures.gfed))))
+        state = RunMachine.reduce(state, RunEvent.Extended(listOf(Fixtures.segment("segment-4", Fixtures.gfed))))
         assertEquals(4, assertIs<CountingIn>(state).lastSegment)
         state = RunMachine.reduce(state, RunEvent.ClockAdvanced(17 * SECOND_NANOS))
         val performing = assertIs<Performing>(state)
@@ -323,7 +323,7 @@ class RunMachineTest {
 
         state = RunMachine.reduce(state, RunEvent.Stop(17 * SECOND_NANOS))
         assertEquals(4, assertIs<Performing>(state).stopAfter)
-        state = RunMachine.reduce(state, RunEvent.Extended(listOf(Segment("segment-5", Fixtures.cdef))))
+        state = RunMachine.reduce(state, RunEvent.Extended(listOf(Fixtures.segment("segment-5", Fixtures.cdef))))
         assertEquals(4, assertIs<Performing>(state).lastSegment)
         assertEquals(6, state.context.timeline.segmentCount)
 
@@ -336,7 +336,7 @@ class RunMachineTest {
 
     @Test
     fun `an extension is ignored outside a running run`() {
-        val more = RunEvent.Extended(listOf(Segment("segment-4", Fixtures.gfed)))
+        val more = RunEvent.Extended(listOf(Fixtures.segment("segment-4", Fixtures.gfed)))
 
         assertSame(ready, RunMachine.reduce(ready, more))
         val summary = RunMachine.reduce(RunMachine.reduce(ready, RunEvent.Start(0)), RunEvent.ClockAdvanced(17 * SECOND_NANOS))

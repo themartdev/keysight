@@ -2,8 +2,12 @@ package dev.simonmartineau.keysight.evaluation
 
 import dev.simonmartineau.keysight.Fixtures
 import dev.simonmartineau.keysight.SECOND_NANOS
+import dev.simonmartineau.keysight.exercise.Accompaniment
+import dev.simonmartineau.keysight.exercise.ExerciseConfig
+import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiEvent
 import dev.simonmartineau.keysight.run.MetronomeMode
+import dev.simonmartineau.keysight.run.GeneratedSegmentSource
 import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.score.Pitch
 import dev.simonmartineau.keysight.score.ScoreNote
@@ -255,6 +259,32 @@ class IncrementalEvaluatorTest {
         assertEquals(listOf(0, 4, 4), evaluation.segments.map { it.rhythm!!.lateCount })
         val far = evaluate(perfect.map { (pitch, beat) -> pitch to beat + 0.45 }, clicked)
         assertTrue(far.segments.all { it.rhythm!!.phaseBeats <= BeatPhase.MAX_PHASE_BEATS })
+    }
+
+    @Test
+    fun `both hands are committed together, each outcome naming its staff`() {
+        // A generated hands-together run in C: the melody on one staff, a held triad tone on the other.
+        val config = ExerciseConfig.DEFAULT.copy(hands = Hands.BOTH, accompaniment = Accompaniment.HELD_NOTE)
+        val context = RunContext(GeneratedSegmentSource(runSeed = 11L, config).next(3, firstIndex = 1), Fixtures.slowConfig.copy(segmentCount = 3), seed = 11L)
+        val notes = context.score.notes.map { it.pitch to context.timeline.beatsOf(it.onset) }
+        val leftLate = notes.map { (pitch, beat) -> pitch to if (pitch < Pitch(60)) beat + 0.15 else beat }
+
+        val evaluation = evaluate(leftLate, context)
+
+        assertEquals(context.score.notes.size, evaluation.pitch.correctCount)
+        assertEquals(0, evaluation.pitch.extraCount)
+        assertEquals(1.0, evaluation.pitch.accuracy)
+        evaluation.segments.forEachIndexed { index, result ->
+            val staves = result.pitch.outcomes.map { (it as NoteOutcome.Correct).expected.staff }.toSet()
+            assertEquals(setOf(0, 1), staves, "segment ${index + 1} judges both staves")
+        }
+
+        val leftDropped = notes.filter { (pitch, _) -> pitch >= Pitch(60) }
+        val dropped = evaluate(leftDropped, context)
+        val missing = dropped.pitch.outcomes.filterIsInstance<NoteOutcome.Missing>()
+        assertEquals(context.score.notes.count { it.pitch < Pitch(60) }, missing.size)
+        assertTrue(missing.all { it.expected.staff == 1 && it.expected.hand == dev.simonmartineau.keysight.score.Hand.LEFT })
+        assertEquals(0, dropped.pitch.extraCount)
     }
 
     @Test
