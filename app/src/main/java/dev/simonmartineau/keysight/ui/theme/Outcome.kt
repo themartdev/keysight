@@ -16,9 +16,9 @@ data class OutcomeColors(val correct: Color, val wrong: Color, val extra: Color,
 val MaterialTheme.outcomeColors: OutcomeColors
     @Composable
     get() = if (LocalDarkTheme.current) {
-        OutcomeColors(correct = CorrectDark, wrong = WrongDark, extra = AmberLight, missing = colorScheme.onSurfaceVariant)
+        OutcomeColors(correct = CorrectDark, wrong = WrongDark, extra = ExtraDark, missing = palette.onSurfaceMuted)
     } else {
-        OutcomeColors(correct = Correct, wrong = Wrong, extra = Amber, missing = colorScheme.onSurfaceVariant)
+        OutcomeColors(correct = Correct, wrong = Wrong, extra = Extra, missing = palette.onSurfaceMuted)
     }
 
 enum class OutcomeGlyph { CHECK, CROSS, PLUS, DASH }

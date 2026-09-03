@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Window background used before Compose draws its first frame. Keep in sync with
-         KeySightTheme's surface colours in ui/theme/Color.kt. -->
-    <color name="window_background_light">#FFFCFCF7</color>
-    <color name="window_background_dark">#FF14140F</color>
+         Ground and DarkGround in ui/theme/Color.kt. -->
+    <color name="window_background_light">#FFEFECE4</color>
+    <color name="window_background_dark">#FF121316</color>
 </resources>
