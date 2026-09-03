@@ -1,6 +1,10 @@
-# Adaptive Sight-Reading Trainer
+# KeySight: Adaptive Sight-Reading Trainer
 
-> Android-native, MIDI-driven sight-reading practice with **Flash Sight Reading** as the first complete product feature.
+> Android-native, MIDI-driven sight-reading practice built on a masked, continuous score.
+
+This document is the product plan.
+Its round ladder in section 13 drives development; `CLAUDE.md` describes the code as it is.
+When the two disagree, the code is right about the present and this document is right about the direction.
 
 ---
 
@@ -8,1043 +12,467 @@
 
 ### North-star loop
 
-**Show unseen music → hide it → capture MIDI performance → evaluate the attempt → diagnose errors → adjust difficulty → repeat.**
+Show unseen music, control how much of it the player may see and for how long, capture the MIDI performance, evaluate it, and adjust the difficulty for the next segment.
 
-The long-term product remains an adaptive sight-reading trainer, but the first complete experience is deliberately narrower:
+The distinctive mechanic is **visual exposure as a difficulty variable**.
+A passage the player may see for four beats before playing it is a different exercise from the same passage seen for half a beat, and both differ from a passage the player may see at any time except while playing it.
 
-> Can the player look at a short piece of notation for a limited amount of time, retain it, and perform it accurately without seeing the music?
+The long-term product is an adaptive trainer that learns which kinds of notation need how much exposure for a particular player.
+The near-term product is a practice mode that mimics real sight reading: a real score, read page by page, with the notes obscured according to a chosen policy.
 
-This gives the application a distinctive training mechanic while exercising most of the infrastructure needed later:
+### Where we are
 
-- score representation;
-- score rendering;
-- MIDI input;
-- musical timing;
-- performance evaluation;
-- attempt history;
-- difficulty modeling;
-- adaptive exercise selection.
+Milestones 0 to 3 of the original plan are built and verified on a device: MIDI capture, the shared attempt clock and metronome, staff engraving with Bravura, pitch evaluation, and rhythm evaluation with beat-phase estimation.
+They were built around a discrete attempt on a single one-measure exercise shown then hidden in full.
+Section 2 replaces that model with the continuous masked score.
+Everything below the presentation layer carries over.
 
 ---
 
-# 2. First complete feature: Flash Sight Reading
+## 2. The mechanic: a masked, continuous score
 
-## 2.1 Core exercise
+### 2.1 The run
 
-The user receives a short unseen passage, initially **one measure**.
+A **run** is one continuous performance from Start to Stop, against one tempo, one configuration, and one monotonic clock.
+The score of a run is a sequence of **segments**, one measure each by default.
+Segment 0 is silent: it is engraved as a measure of rest and the metronome counts it in.
+Segments 1 to n are performed one after the other on the same beat line, without stopping.
 
-A metronome gives a one-measure count-in.
+A run can be of fixed length or open-ended.
+An open-ended run keeps generating segments until the player stops, and the page keeps turning.
 
-During part or all of that count-in, the notation is visible.
+### 2.2 The mask
 
-The notation disappears exactly when the performance begins.
+The score is never hidden as a whole.
+Instead, a **visibility policy** decides, for every segment and every beat, whether that segment's notes are drawn.
+The staff, clefs, key and time signatures, and barlines are always drawn, so the player is always looking at a real score with some notes missing.
 
-The player performs the passage from memory while the app captures MIDI.
-
-The app then evaluates the performance and immediately presents the next exercise.
-
-### Example: 4/4
-
-Treat the count-in and performance as one continuous beat timeline:
+The policy has three parameters, all defined on the beat line relative to the segment being decided:
 
 ```text
-Count-in                    Performance
-1       2       3       4 | 5       6       7       8
-                            ^
-                            music starts here
+VisibilityPolicy
+- lookaheadBeats   how long before a segment starts its notes appear; unbounded means always
+- hideWhilePlaying whether a segment's notes are hidden from its first beat to its last
+- showAfter        whether a segment's notes come back once it is over
 ```
 
-The easiest configuration shows the notation for all four count-in beats:
+Every mode is a preset over those three:
+
+| Mode | lookaheadBeats | hideWhilePlaying | showAfter | What it trains |
+|---|---:|---|---|---|
+| Flash | 4, 3, 2, 1.5, 1, 0.75, 0.5, 0.25 | yes | yes | Retention: read it, then play from memory |
+| Read ahead | unbounded | yes | yes | Reading ahead: everything is visible except the bar being played |
+| Open score | unbounded | no | yes | Plain sight reading, the baseline and the warm-up |
+
+Flash with a one-measure lookahead is the original Flash Sight Reading exercise: the next bar appears while the current one is played from memory.
+The original preview ladder is now the lookahead ladder.
+
+The mask is a function of the beat, computed from the timeline on every frame, and never a timer.
+The rule from the original plan stands: the notes of a segment disappear exactly on the beat its performance starts.
+
+### 2.3 Pages
+
+The score is read from a static page, not a scrolling strip, because real sight reading trains the eye to move across a fixed system while the hands play.
+
+- A **system** is a horizontal row of measures across both staves, justified to the screen width.
+- A **page** is a stack of systems, two at a time on a phone.
+- The player reads the top system; when the cursor leaves it, the lower system moves up and a newly laid-out system fills the bottom.
+- The next system is therefore always on screen before it is needed, so lookahead across a system boundary works.
+- Measures per system depend on orientation, roughly two in portrait and four in landscape on a phone, decided by the layout width in staff spaces.
+
+A thin cursor marks the current beat position on the current system.
+Timing marks and pitch marks appear on a measure once its evaluation is committed, provided the mode shows the past.
+
+### 2.4 Configuration
+
+Flash-side and music-side configuration stay separate.
 
 ```text
-VISIBLE
-1-------2-------3-------4--|5
-                           HIDE
-```
-
-Harder configurations shorten the preview:
-
-```text
-Preview = 3 beats
-        2-------3-------4--|5
-
-Preview = 2 beats
-                3-------4--|5
-
-Preview = 1 beat
-                        4--|5
-
-Preview = 0.5 beats
-                          4&|5
-```
-
-Rather than representing these as separate modes, model them with one parameter:
-
-```text
-previewDurationBeats
-```
-
-For 4/4:
-
-| Difficulty | `previewDurationBeats` |
-|---|---:|
-| Full count-in | 4.0 |
-| Beats 2–4 | 3.0 |
-| Beats 3–4 | 2.0 |
-| Beat 4 | 1.0 |
-| Last eighth note | 0.5 |
-| Last sixteenth | 0.25 |
-
-This generalizes naturally to 3/4, 6/8, changing tempos, and other exercises.
-
----
-
-## 2.2 Initial exercise configuration
-
-Separate **what the player reads** from **how the flash works**.
-
-### Flash configuration
-
-```text
-FlashConfig
+RunConfig
 - tempoBpm
-- timeSignature
-- countInMeasures
-- previewDurationBeats
-- metronomeDuringAttempt
-```
+- metronome        COUNT_IN_ONLY | THROUGHOUT
+- mode             the VisibilityPolicy preset
+- lookaheadBeats   for Flash mode
+- length           fixed segment count, or open-ended
 
-Initial defaults:
-
-```text
-timeSignature          = 4/4
-countInMeasures        = 1
-previewDurationBeats   = 4
-metronomeDuringAttempt = false
-```
-
-The metronome therefore establishes the pulse, but disappears when the player starts.
-
-Later, `metronomeDuringAttempt = true` can become an easier training variant.
-
-### Exercise configuration
-
-```text
-ExerciseConfig
-- measureCount
-- clef
+ExerciseConfig     what the generator produces, see section 7
 - key
-- pitchRange
+- staves           right hand, left hand, or both
+- pitchRange per staff
 - noteValues
 - rests
 - maximumInterval
 - chordSize
-- hand
-- polyphony
 - rhythmicPatterns
 ```
 
-Do **not** expose all of these in the first UI.
-
-They are internal dimensions that eventually drive presets and adaptation.
-
----
-
-# 3. V1 scope
-
-## 3.1 Start much smaller than the eventual sight-reading system
-
-The first polished version should probably support:
-
-- one measure;
-- 4/4;
-- treble clef;
-- one hand;
-- monophonic notation;
-- quarter notes and half notes;
-- a constrained pitch range;
-- one-bar count-in;
-- USB MIDI keyboard;
-- several preview durations;
-- pitch and basic rhythm scoring.
-
-Then progressively add:
-
-1. eighth notes;
-2. rests;
-3. accidentals;
-4. wider intervals;
-5. bass clef;
-6. chords;
-7. two hands;
-8. multiple measures;
-9. additional meters;
-10. polyphony.
-
-This gives every added musical dimension a measurable effect rather than introducing the entire notation problem simultaneously.
+Only the mode, the lookahead, the key, the staves, and the tempo are exposed in the first UI.
+The rest are generator dimensions the difficulty controller moves on the player's behalf.
 
 ---
 
-# 4. Exercise lifecycle
+## 3. Scope now and next
 
-Each Flash Sight Reading attempt should have an explicit state machine.
+Built and verified:
+
+- USB MIDI capture with monotonic timestamps;
+- one shared attempt timeline, an `AudioTrack` metronome anchored to the audio timestamp;
+- treble or bass staff engraving with Bravura, quarter and half notes, C major;
+- pitch evaluation by edit-distance alignment over pitch and onset;
+- rhythm evaluation with bounded beat-phase estimation, timing marks, tempo ratio, pauses, and continuity;
+- Room history with raw MIDI, score and config snapshots, evaluations keyed by evaluator version.
+
+Next, in the order of section 13:
+
+1. grand staff, key signatures, systems and pages, the per-tick mask;
+2. the continuous run with incremental evaluation and a run-level data model;
+3. a seeded exercise generator, key selection, both hands;
+4. the per-segment difficulty controller.
+
+Then, one generator dimension at a time: eighth notes, rests, accidentals, wider ranges, chords, other meters.
+
+---
+
+## 4. Run lifecycle
 
 ```text
 READY
-  ↓
-COUNT_IN
-  ↓
-PREVIEW_VISIBLE
-  ↓
-PREVIEW_HIDDEN
-  ↓
-PERFORMING
-  ↓
-EVALUATING
-  ↓
-RESULT
-  ↓
-NEXT_EXERCISE
+  ↓ Start
+COUNT_IN        segment 0, metronome sounding, segments masked by the policy
+  ↓ beat n(0)
+PERFORMING      segments 1..n, mask and cursor follow the beat, evaluation commits behind the cursor
+  ↓ Stop, or the last segment's capture tail ends
+SUMMARY
+  ↓ Next
+READY
 ```
 
-In many configurations, `COUNT_IN` and `PREVIEW_VISIBLE` overlap.
+Every scheduled instant of a run is computed from its absolute beat and the tempo, never accumulated, so a long run cannot drift.
 
-For example, with a four-beat count-in and a two-beat preview:
+The engineering rule from the original plan is unchanged and still the most important one:
 
-```text
-Beat             1       2       3       4       5
-Metronome        ●       ●       ●       ●
-Score                            SHOW------------HIDE
-Performance                                      START
-```
+> Audio, MIDI capture, the mask, the cursor, the page turn, and evaluation windows all reference the same monotonic clock.
 
-The important engineering rule is:
+Legal interruptions, each a tested transition:
 
-> Audio, MIDI capture, score visibility, and performance start must all reference the same monotonic attempt clock.
-
-Avoid having independent UI timers controlling the exercise.
+- MIDI device disconnects during the run: the run aborts and is stored as aborted with everything captured so far.
+- The app is backgrounded: the run aborts the same way.
+- The player stops: the run ends after the current segment's capture tail and is summarised.
+- MIDI arrives before beat n(0): captured, attributed to no segment, kept.
 
 ---
 
-# 5. Performance evaluation
+## 5. Performance evaluation
 
-Flash Sight Reading simplifies the original alignment problem because:
+### 5.1 What stays
 
-- exercises are short;
-- the expected tempo is known;
-- the expected performance is known;
-- the user cannot stop to reread the score.
+The evaluator sees `ScoreNote` and `MidiEvent`, never notation.
+It is deterministic from stored MIDI, versioned by `EVALUATOR_VERSION`, and every judgement change bumps the version.
 
-The initial performance engine therefore does **not** need the full general-purpose score↔performance alignment system.
+Pitch is an edit-distance alignment over pitch and onset that yields correct, wrong-pitch, missing, and extra outcomes.
+Rhythm measures each matched note's onset error after removing the player's beat phase, then reports per-note timing, tempo ratio, pauses, and continuity.
 
-## 5.1 Phase 1 — pitch correctness
+The beat phase absorbs device latency and the player's habitual lean, bounded to a fraction of a beat, so nobody appears late merely because their phone has output latency.
 
-For the first playable prototype:
+### 5.2 What changes: incremental evaluation
 
-- expected notes;
-- played notes;
-- missing notes;
-- extra notes;
-- wrong pitches;
-- completion.
+A run can be long or endless, so the evaluator works on a trailing window.
 
-Example result:
+- The window holds the last three segments' expected notes and the MIDI captured from the first of them onwards.
+- Alignment runs over the window; the oldest segment's outcomes are **committed** once the cursor has passed its end plus the capture tail.
+- Boundary notes therefore land in the right segment: a late final note of segment k is aligned with segment k's last expected note, not counted as extra in k+1.
+- Committing is what makes marks appear on the page and what feeds the difficulty controller.
 
-```text
-7 / 8 notes correct
+### 5.3 What changes: a running beat phase
 
-Wrong:
-Beat 3: expected F4, played G4
+One phase per run is not enough.
+Without a click after the count-in, a player's pulse drifts over a long run, and a fixed phase would call every late-run note wrong.
 
-Missing:
-Beat 4: C5
-```
+- The phase is re-estimated at every commit from the window's on-pulse deviations, with the previous phase as the prior and a bounded step per segment.
+- The tempo ratio is likewise a windowed estimate.
+- With the metronome throughout, the prior is strong and the phase barely moves; without it, the estimate follows the player.
 
-This is enough to prove the complete loop.
+### 5.4 Two hands
 
-## 5.2 Phase 2 — rhythm
-
-Then add:
-
-- onset timing;
-- duration;
-- early/late bias;
-- tempo stability;
-- pauses;
-- pulse loss.
-
-Do not score absolute MIDI timestamps directly against the scheduled audio click without accounting for device audio latency.
-
-Instead, allow the performance engine to estimate the player's beat phase from the MIDI performance while using the configured BPM as the tempo prior.
-
-That avoids making someone appear systematically late simply because their Android device has output latency.
-
-## 5.3 Phase 3 — richer notation
-
-Later:
-
-- chord completeness;
-- chord synchronization;
-- hand synchronization;
-- recovery after errors;
-- local tempo changes;
-- polyphonic alignment.
-
-At that point the more sophisticated sequence-alignment architecture from the original plan becomes valuable.
+Both staves are aligned as one stream of onset-grouped chords.
+Each outcome is attributed to a hand through the expected note's staff, so hand-specific feedback falls out without a second alignment.
+Polyphonic alignment that tolerates one hand lagging the other is deferred until the union alignment proves insufficient.
 
 ---
 
-# 6. Feedback
+## 6. Feedback
 
-Keep feedback extremely compact during practice.
+Feedback stays compact.
+During a run, feedback is the marks on the page behind the cursor, nothing else.
 
-A user should be able to move from one exercise to the next in seconds.
+Rules for what is said:
 
-### Immediate result
+- **Every remark must point at something visible on the page.**
+  A lean remark is made only when there is an early or late mark for it to explain; a passage played entirely on the player's own pulse earns no remark, whatever the phase estimate says.
+- Marks are the only place evaluation meets notation, through `noteMarks`.
+- Detail is available on demand from the summary, never pushed.
+
+### Run summary
 
 ```text
-Pitch       92%
-Rhythm      88%
+16 bars   Flash 2 beats   G major   both hands
+
+Pitch       91%
+Rhythm      84%
 Continuity  Good
+
+Weakest bars: 7, 12
+Needs work: descending 4ths, left-hand entries
 ```
 
-Then annotate the score:
-
-```text
-✓ ✓ ✓ ✗ ✓ ✓
-```
-
-Allow detail on demand, but do not make every attempt feel like an analytics dashboard.
-
-### Session summary
-
-After a session:
-
-```text
-12 exercises
-
-Pitch accuracy      91%
-Rhythm accuracy     84%
-Average preview     1.8 beats
-
-Strong:
-- stepwise reading
-- repeated notes
-
-Needs work:
-- ascending 4ths
-- eighth-note patterns
-```
+The "needs work" lines arrive with the generator, since it knows what each segment was made of.
 
 ---
 
-# 7. Difficulty
+## 7. Content: generated, not curated
 
-Flash Sight Reading introduces an important distinction:
+Endless runs, every key, and two staves cannot be served by hand-written measures.
+Content comes from a **generator**: `ExerciseConfig` plus a seed to a `Score`, deterministic, tested against its own constraints.
 
-> **Notation difficulty** and **preview difficulty are separate variables.**
+Principles:
 
-A simple passage shown for half a beat can be difficult.
+- Generate in C and transpose diatonically into the requested key, so key coverage is free and spelling is consistent.
+- Constrained random walk with a contour, a cadence on the last segment of a fixed-length run, and a small vocabulary of rhythmic patterns per difficulty.
+- Each musical dimension is a generator parameter with fixtures and evaluator tests before the controller may move it.
+- The seed, the generator version, and the parameters are stored with every segment, and so is the resulting score, because generators change and history must re-evaluate on its own.
 
-A harder passage shown for four beats can also be difficult.
-
-Model them independently.
-
-## 7.1 Preview difficulty
-
-Primary variable:
-
-```text
-previewDurationBeats
-```
-
-Possible progression:
-
-```text
-4 → 3 → 2 → 1.5 → 1 → 0.75 → 0.5 → 0.25
-```
-
-Avoid assuming these steps are psychologically linear.
-
-Eventually the app should learn how strongly each reduction affects a particular player.
-
-## 7.2 Musical difficulty
-
-Examples:
-
-- pitch range;
-- interval size;
-- note density;
-- rhythmic complexity;
-- rests;
-- accidentals;
-- register;
-- chords;
-- hand independence;
-- polyphony.
-
-## 7.3 Initial adaptive rule
-
-Do not start with ML.
-
-Use a simple controller.
-
-For example:
-
-```text
-if recentSuccess > 90%:
-    slightly increase difficulty
-
-if recentSuccess < 65%:
-    slightly decrease difficulty
-
-otherwise:
-    keep approximately the same level
-```
-
-But vary only **one dimension at a time** when possible.
-
-Example:
-
-```text
-Current:
-preview = 2 beats
-musicDifficulty = 3
-
-Player succeeds consistently.
-
-Next:
-preview = 1.5 beats
-musicDifficulty = 3
-```
-
-This makes the adaptation interpretable.
+The 18 bundled measures remain as test fixtures and as the interim content for the continuous run before the generator exists, chained in one key.
 
 ---
 
-# 8. Android architecture
+## 8. Difficulty
 
-## 8.1 Application
+Exposure difficulty and musical difficulty are separate variables and are moved separately.
 
-Use a single Android application.
+Dimensions, easiest first:
+
+| Dimension | Ladder |
+|---|---|
+| Lookahead | 4, 3, 2, 1.5, 1, 0.75, 0.5, 0.25 beats |
+| Mode | Open score, Read ahead, Flash |
+| Staves | one hand, both hands |
+| Key | C, then one accidental, then two, outward on the circle of fifths |
+| Musical | the generator's parameters, one at a time |
+
+### Controller
+
+No learning in the first version.
+The controller runs per committed segment on a window of recent segments:
 
 ```text
-Kotlin
-Jetpack Compose
-Coroutines / Flow
-Room
-Android MIDI API
+if recentSuccess > 90%: step one dimension up
+if recentSuccess < 65%: step one dimension down
+otherwise: hold
 ```
 
-Recommended minimum SDK:
+It moves **one dimension at a time**, so every change is interpretable and the player can feel it.
+Within a run, the controller changes the generator's parameters for upcoming segments; the exposure dimensions change between runs so the mode of a run is stable.
 
-```text
-minSdk = 23
-```
-
-The Android MIDI framework is available from API 23, so there is little value in supporting older Android versions for this product.
-
-Jetpack Compose is a good fit for the surrounding application UI and keeps the project Kotlin-native.
-
-Do not introduce a backend for V1.
+Later, the learner model of section 14 replaces the fixed ladders with per-context comfort levels.
 
 ---
 
-## 8.2 Logical modules
+## 9. Architecture
+
+Kotlin, Jetpack Compose, coroutines and Flow, Room, the Android MIDI API, `minSdk` 23, one module, no backend.
+Manual dependency injection through `AppContainer`.
+
+Packages by concern, all pure JVM except `audio`, `settings`, `data`'s Room layer, `di`, and `ui`:
 
 ```text
-app/
-│
-├── exercise/
-│   ├── Exercise
-│   ├── ExerciseRepository
-│   └── ExerciseSelector
-│
-├── score/
-│   ├── ScoreModel
-│   └── ScoreRenderer
-│
-├── midi/
-│   ├── MidiDeviceManager
-│   ├── MidiCapture
-│   └── MidiEvent
-│
-├── timing/
-│   ├── AttemptClock
-│   └── MetronomeEngine
-│
-├── attempt/
-│   ├── AttemptController
-│   ├── AttemptState
-│   └── AttemptRepository
-│
-├── evaluation/
-│   ├── PerformanceEvaluator
-│   ├── PitchEvaluator
-│   └── RhythmEvaluator
-│
-└── session/
-    ├── Session
-    └── SessionSummary
+score/       the canonical model: Ticks, Pitch, SpelledPitch, ScoreNote, Staff, Score
+exercise/    ExerciseConfig, the generator, the repository of bundled fixtures
+midi/        MidiEvent, MidiMessage, MidiParser
+timing/      MonotonicClock, the run timeline
+run/         RunConfig, VisibilityPolicy, the pure run reducer and its controller
+audio/       ClickTrack, AudioTrackMetronome
+evaluation/  PlayedNotes, NoteAlignment, BeatPhase, RhythmAnalysis, incremental PerformanceEvaluator
+difficulty/  the controller and the recent-performance window
+settings/    run and theme settings
+data/        Room entities, DAOs, migrations, mappers
+notation/    the layout engine: systems, pages, the mask by tick
+ui/          the Compose renderer and the practice screen
 ```
 
-Keep these as modules/packages within one application rather than separate services.
+`attempt/` becomes `run/` when the continuous run lands; until then the names in `CLAUDE.md` apply.
 
----
-
-# 9. Score representation and rendering
-
-Avoid making runtime MusicXML support a requirement for the first feature.
-
-There are really two separate problems:
-
-1. **representing the music for analysis;**
-2. **drawing notation for the player.**
-
-Keep them separate.
-
-## 9.1 Canonical score model
-
-The application should operate on something like:
+### Score representation
 
 ```text
+Score
+- timeSignature
+- keySignature
+- staves: List<Staff>    each with a clef; one for a single hand, two for the grand staff
+- measureCount
+- notes: List<ScoreNote>
+
 ScoreNote
 - id
-- pitch
-- onsetBeat
-- durationBeats
+- spelling
+- onset, duration       integer Ticks, 960 per quarter
+- staff                 index into staves
 - voice
-- hand
-- chordId
+- hand                  kept separate from staff because cross-staff writing exists
 ```
 
-The evaluator should never need to inspect SVG or MusicXML.
+The evaluator never inspects notation.
+The layout engine never inspects evaluation, except through `noteMarks`.
+
+### Notation
+
+The layout engine is native and pure: it lays out a system of measures in staff spaces, justified to a width, with a brace and spanning barlines for the grand staff, key signatures, and accidentals.
+Every element carries the tick of the chord it belongs to, which is what the mask and the marks key on.
+Only the Compose renderer converts staff spaces to pixels, and glyphs are placed by their SMuFL origins from the `BravuraMetrics` table.
+
+MusicXML ingestion and offline SVG rendering from the original plan are not needed and are dropped.
 
 ---
 
-## 9.2 Rendering strategy
+## 10. Timing
 
-For the first content pack:
+Unchanged from what is built:
 
-```text
-MusicXML
-   ↓
-offline ingestion
-   ├── canonical exercise data
-   └── rendered SVG
-```
+- Beat 0 is when the first click reaches the listener, read from `AudioTrack.getTimestamp`.
+- Clicks are placed by sample position, never by sleeping.
+- The reducer is pure and wakes only at its next deadline; whether a MIDI event is captured is decided by its own timestamp.
+- Visuals read the frame time in `withFrameNanos` and derive the beat, the mask, the cursor, and the page from the timeline; they never tick.
 
-Bundle both with the application.
+If device testing ever shows unacceptable click jitter, investigate Oboe before writing native code.
 
-This avoids putting a complex notation engine in the critical Android runtime path.
-
-Verovio is a reasonable ingestion/rendering candidate because it can import MusicXML and produce SVG.
-
-Later, if exercises need runtime transposition, responsive engraving, or dynamically generated notation, reevaluate:
-
-- Verovio through a local WebView;
-- a native integration;
-- another Android-compatible renderer.
-
-Do not solve that problem before it exists.
+A **latency calibration** step, tapping along with the click to measure the player's device offset, is a later addition that would let the lean be reported on its own.
 
 ---
 
-# 10. Metronome and timing
-
-Timing deserves its own subsystem.
-
-The exercise controller should schedule everything against a monotonic clock:
+## 11. Data model
 
 ```text
-attemptStart
-previewStart
-previewEnd
-performanceStart
-performanceEnd
-```
+Run
+- id, startedAt, status, abortReason
+- tempoBpm, configJson          the RunConfig snapshot
+- clock anchor
 
-Avoid:
+Segment
+- id, runId, index, startBeat
+- scoreJson                     the segment's score snapshot
+- generatorVersion, seed, exerciseConfigJson, or the bundled exercise id
 
-```text
-delay(1000)
-delay(1000)
-delay(1000)
-```
-
-as the source of musical truth.
-
-A delay-based coroutine is fine for UI transitions, but elapsed delays should not define the authoritative musical timeline.
-
-## Initial audio approach
-
-Start with Android `AudioTrack`.
-
-If device testing shows unacceptable click jitter or output latency, investigate a lower-level Oboe implementation rather than introducing native C++ immediately.
-
-Oboe's own guidance notes that Kotlin/Java `AudioTrack` can be sufficient and recommends weighing the latency improvement against JNI complexity.
-
----
-
-# 11. Data model
-
-Keep the initial persistence model small.
-
-```text
-Exercise
-ExerciseContent
-Attempt
 MidiEvent
-EvaluationResult
-Session
-UserDifficultyState
+- runId, timestampNanos, the three raw bytes
+
+Evaluation
+- segmentId, evaluatorVersion, resultJson
+
+Session, DifficultyState
 ```
 
-### Attempt
+Invariants:
+
+- Raw MIDI is never discarded or overwritten.
+- A run's MIDI, its config, and its segments' scores are enough to re-evaluate the run with any evaluator version.
+- Schema changes ship with a migration and a migration test; the move from attempts to runs converts every existing attempt into a one-segment run.
+
+---
+
+## 12. Tests that matter
+
+- **MIDI fixtures** per segment: perfect, wrong pitch, missing, extra, repeated, early, late, pause, and a late final note that must not leak into the next segment.
+- **Timeline**: with an injected clock, the beat of every scheduled instant for a run with count-in, lookahead, and a page turn.
+- **Mask**: for each mode preset, the visibility of every segment at every beat, including the exact beat notes disappear.
+- **Reducer**: every legal transition, including disconnect, background, stop, and MIDI before the first performed beat.
+- **Layout**: justification to a width, the brace and spanning barlines, key signature placement in every key, accidentals against the key.
+- **Generator**: every produced score satisfies its config, is deterministic for a seed, and transposes back to C.
+- **Incremental evaluation**: committing the same segment from a trailing window gives the same outcomes as evaluating it alone with unlimited context.
+- **Running phase**: a slow drift is followed, a sudden jump is not.
+- **Migration**: every schema step, on a device.
+
+---
+
+## 13. Round ladder
+
+Each round is planned in plan mode, verified with unit tests, debug and release builds, androidTest compilation, and lint, then checked on a device from Android Studio before the next round starts.
+
+### Round 5: grand staff, keys, pages
+
+- `Staff` on the score, a staff index on notes, serializer defaults so existing JSON loads.
+- System layout with brace, spanning barlines, justification, key signatures, accidentals.
+- Pages of two systems; the mask by tick in the renderer.
+- Diatonic transposition and staff assignment so the bundled measures can appear in any key on either staff.
+- Device check: the grand staff renders correctly in every key, in both orientations.
+
+### Round 6: the continuous run
+
+- The run timeline with a silent segment 0, the `VisibilityPolicy` and its three presets, the cursor and the page turn.
+- Incremental evaluation on a trailing window, the running beat phase, marks appearing behind the cursor.
+- Schema version 3: runs, segments, MIDI by run, evaluations by segment; attempts migrated to one-segment runs.
+- Run summary.
+- Content: bundled measures chained in one key.
+- This round may be split into presentation and evaluation halves if it runs long.
+- Device check: an open-ended Read-ahead run for five minutes without drift, marks on the right notes across page turns.
+
+### Round 7: the generator
+
+- `ExerciseConfig`, the seeded generator, its constraint tests.
+- Key and staves selection in settings; both hands.
+- Seeds and parameters stored per segment.
+- Device check: ten minutes of two-hand Flash in G major without repetition or an unplayable bar.
+
+### Round 8: the difficulty controller
+
+- The recent-performance window and the one-dimension-at-a-time controller.
+- Within-run movement of generator parameters; between-run movement of exposure.
+- Device check: ten minutes of practice feels matched to the player without touching settings.
+
+### After
+
+- Generator dimensions one at a time: eighth notes, rests, accidentals, wider ranges, chords, other meters, each with fixtures first.
+- Latency calibration.
+- History and session summary screens.
+- A real corpus, segmented into runs, once generated material stops being enough.
+- The learner model.
+
+---
+
+## 14. Learner model, later
+
+Track weaknesses such as interval reading, rhythm reading, accidentals, left and right hand, chords, pulse maintenance, and exposure tolerance.
+
+The Flash-specific signal is:
 
 ```text
-Attempt
-- id
-- exerciseId
-- startedAt
-- tempo
-- previewDurationBeats
-- configSnapshot
-- evaluatorVersion
+minimumLookaheadByMusicalContext
 ```
 
-### MIDI event
-
-```text
-MidiEvent
-- timestampNanos
-- type
-- channel
-- pitch
-- velocity
-```
-
-Raw MIDI events should be retained.
-
-Derived evaluations can be recomputed when the evaluator improves.
+Stepwise melody comfortable at 0.75 beats, large leaps at 2 beats, chords at 3 beats.
+That is the per-context comfort level the controller of section 8 will eventually consult, and it is the reason the mechanic is worth building.
 
 ---
 
-# 12. Local-first V1
+## 15. Explicitly deferred
 
-The entire first product should work offline.
-
-```text
-Android app
-│
-├── bundled exercises
-├── bundled notation
-├── MIDI capture
-├── evaluation
-├── Room attempt history
-└── difficulty state
-```
-
-No account.
-
-No backend.
-
-No cloud corpus.
-
-No ML service.
-
-No microservices.
-
-Later, a server can provide:
-
-- content packs;
-- cross-device profiles;
-- corpus search;
-- richer adaptive selection;
-- aggregate difficulty models.
-
-But none of those are necessary to determine whether Flash Sight Reading is useful.
+- AI music generation and any ML;
+- accounts, cloud synchronisation, social features, teacher dashboards;
+- microphone pitch detection, fingering detection, computer vision;
+- a runtime MusicXML editor;
+- a general performance alignment engine, until the constrained runs prove it necessary;
+- microservices, or a backend of any kind for V1.
 
 ---
 
-# 13. First content strategy
+## 16. Validation questions
 
-Do not begin by curating thousands of excerpts.
+Before investing in a corpus or a learner model, answer:
 
-For Flash Sight Reading, the first content pack can be deliberately controlled.
-
-Start with roughly:
-
-```text
-50–100 one-measure exercises
-```
-
-Cover combinations such as:
-
-- repeated notes;
-- stepwise motion;
-- thirds;
-- fourths;
-- fifths;
-- basic rhythmic patterns;
-- gradually expanding ranges.
-
-This controlled material is actually useful during development because bugs become reproducible.
-
-Once the exercise engine works, introduce real repertoire and retrieval.
-
----
-
-# 14. Delivery roadmap
-
-## Milestone 0 — Android + MIDI spike
-
-### Build
-
-- Compose application;
-- MIDI device discovery;
-- connect/disconnect keyboard;
-- capture note-on/note-off;
-- display received notes.
-
-### Exit criterion
-
-A physical MIDI keyboard can reliably play notes into the Android application.
-
----
-
-## Milestone 1 — Flash timeline
-
-### Build
-
-- metronome;
-- count-in;
-- exercise screen;
-- preview visibility;
-- `previewDurationBeats`;
-- shared attempt clock.
-
-No scoring yet.
-
-### Exit criterion
-
-A one-measure exercise can reliably:
-
-```text
-appear → remain visible for N beats → disappear → begin performance
-```
-
-without visible timing drift.
-
----
-
-## Milestone 2 — Complete Flash Sight Reading loop
-
-### Build
-
-- canonical score events;
-- MIDI attempt capture;
-- pitch evaluation;
-- result screen;
-- next exercise.
-
-### Exit criterion
-
-A user can repeatedly:
-
-```text
-see → memorize → play → receive score → continue
-```
-
-without developer intervention.
-
-**This is the first real product milestone.**
-
----
-
-## Milestone 3 — Rhythm evaluation
-
-### Build
-
-- beat-phase estimation;
-- onset matching;
-- rhythm accuracy;
-- tempo stability;
-- pauses.
-
-### Exit criterion
-
-Feedback distinguishes:
-
-```text
-right notes / wrong rhythm
-```
-
-from:
-
-```text
-wrong notes / right pulse
-```
-
-reliably.
-
----
-
-## Milestone 4 — Difficulty progression
-
-### Build
-
-- preview difficulty;
-- musical difficulty;
-- recent performance model;
-- automatic progression/regression.
-
-### Exit criterion
-
-Ten minutes of practice feels approximately matched to the player's level without manual configuration.
-
----
-
-## Milestone 5 — Musical expansion
-
-Incrementally add:
-
-- eighth notes;
-- rests;
-- accidentals;
-- wider ranges;
-- bass clef;
-- chords;
-- two hands;
-- additional meters.
-
-Each dimension should have fixtures and evaluator tests before becoming part of adaptive selection.
-
----
-
-## Milestone 6 — Real corpus
-
-Only now bring back the larger retrieval-first architecture:
-
-```text
-MusicXML corpus
-    ↓
-ingestion
-    ↓
-segmentation
-    ↓
-feature extraction
-    ↓
-exercise database
-    ↓
-learner-specific selection
-```
-
-The original larger adaptive vision begins here.
-
----
-
-## Milestone 7 — Learner model
-
-Track weaknesses such as:
-
-- interval reading;
-- rhythm reading;
-- accidentals;
-- left/right hand;
-- chords;
-- pulse maintenance;
-- preview-memory tolerance.
-
-A useful Flash-specific learner dimension becomes:
-
-```text
-minimumPreviewByMusicalContext
-```
-
-For example:
-
-```text
-Simple stepwise melody:
-comfortable at 0.75 beats
-
-Large leaps:
-comfortable at 2 beats
-
-Chords:
-comfortable at 3 beats
-```
-
-That could become one of the application's most interesting adaptive signals.
-
----
-
-# 15. Things explicitly deferred
-
-Do not build these for the first product:
-
-- AI music generation;
-- ML;
-- advanced learner embeddings;
-- huge repertoire corpus;
-- runtime general-purpose MusicXML editor;
-- accounts;
-- cloud synchronization;
-- social features;
-- teacher dashboards;
-- microphone pitch detection;
-- fingering detection;
-- computer vision;
-- microservices.
-
-Also defer a fully general performance alignment engine until the constrained Flash exercises prove that it is required.
-
----
-
-# 16. Engineering tests that matter early
-
-## MIDI fixtures
-
-Replay captured MIDI for:
-
-- perfect performance;
-- wrong pitch;
-- missing note;
-- extra note;
-- repeated note;
-- early note;
-- late note;
-- pause.
-
-The evaluator should be deterministic.
-
-## Timing tests
-
-Given:
-
-```text
-tempo = 60 BPM
-countIn = 4 beats
-previewDuration = 2 beats
-```
-
-the expected timeline is always:
-
-```text
-0s    beat 1
-1s    beat 2
-2s    beat 3 / preview appears
-3s    beat 4
-4s    performance starts / preview disappears
-```
-
-The timing engine should be testable without waiting four real seconds by injecting a clock.
-
-## State-machine tests
-
-Test every legal transition.
-
-Especially:
-
-- MIDI disconnect during count-in;
-- app backgrounded during exercise;
-- exercise canceled;
-- MIDI arrives before performance start;
-- MIDI continues after timeout.
-
----
-
-# 17. First implementation backlog
-
-1. Create Android project with Compose.
-2. Implement MIDI device discovery.
-3. Capture raw MIDI events with monotonic timestamps.
-4. Create the canonical `ScoreNote` representation.
-5. Hard-code one one-measure exercise.
-6. Render that exercise.
-7. Build the metronome.
-8. Create the central `AttemptClock`.
-9. Implement the attempt state machine.
-10. Implement `previewDurationBeats`.
-11. Hide notation at performance start.
-12. Record one MIDI attempt.
-13. Implement exact pitch matching.
-14. Show a result.
-15. Add “Next”.
-16. Add 10–20 test exercises.
-17. Persist attempts with Room.
-18. Add rhythm evaluation.
-19. Expand to 50–100 exercises.
-20. Add automatic preview difficulty.
-
-At step **15**, you already have something worth repeatedly playing yourself.
-
----
-
-# 18. MVP acceptance criteria
-
-## MIDI
-
-- USB MIDI keyboard connects reliably.
-- Disconnect/reconnect works without restarting.
-- Note-on, note-off, pitch, velocity, and timestamps are retained.
-
-## Flash timing
-
-- One-measure count-in is stable.
-- Preview duration supports fractional beats.
-- Score disappearance and performance start share the same timeline.
-- Repeated attempts do not accumulate timer drift.
-
-## Score
-
-- One-measure notation is clearly readable on Android phone and tablet screens.
-- Score representation is independent from rendering.
-
-## Evaluation
-
-- Correct notes are recognized.
-- Missing, extra, and wrong notes are detected.
-- Basic rhythmic mistakes are identified.
-- Evaluation is deterministic from stored MIDI.
-
-## Session UX
-
-A player can complete at least:
-
-```text
-20 consecutive flash exercises
-```
-
-without configuration or developer intervention.
-
-## Data
-
-- Raw MIDI is preserved.
-- Attempt configuration is preserved.
-- Evaluator version is preserved.
-- Historical attempts can be reevaluated later.
-
----
-
-# 19. Product validation milestone
-
-Before investing heavily in adaptive retrieval or ML, answer this:
-
-> **Does shortening the preview window produce a compelling sight-reading exercise that players want to repeat?**
+> Does controlling visual exposure on a real, page-turned score produce a practice mode players want to repeat?
 
 Then:
 
-> **Can the application identify which kinds of notation require more preview time for a particular player?**
+> Can the application tell which kinds of notation need more exposure for a particular player?
 
-If both answers are yes, the original adaptive architecture becomes much more valuable.
+If both are yes, the central adaptive question becomes:
 
-Instead of merely asking:
-
-> “What music is appropriate for this player?”
-
-the system can eventually ask:
-
-> “What music should this player see next, and how long should they be allowed to see it?”
-
-That combination of **musical difficulty + visual exposure time** can become the central adaptive mechanic of the product.
+> What music should this player see next, and how much of it should they be allowed to see, and for how long?

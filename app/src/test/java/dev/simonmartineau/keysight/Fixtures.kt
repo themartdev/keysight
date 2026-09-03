@@ -3,7 +3,6 @@ package dev.simonmartineau.keysight
 import dev.simonmartineau.keysight.attempt.AttemptContext
 import dev.simonmartineau.keysight.attempt.FlashConfig
 import dev.simonmartineau.keysight.exercise.Exercise
-import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Score
 import dev.simonmartineau.keysight.score.ScoreNote
@@ -46,11 +45,14 @@ object Fixtures {
 
     val slowContext = AttemptContext(exercise, slowConfig)
 
-    fun oneMeasure(vararg notes: ScoreNote, timeSignature: TimeSignature = TimeSignature.FOUR_FOUR) = Score(
+    fun oneMeasure(vararg notes: ScoreNote, timeSignature: TimeSignature = TimeSignature.FOUR_FOUR) =
+        measures(1, *notes, timeSignature = timeSignature)
+
+    /** [measureCount] measures of 4/4 in C major on a treble staff. */
+    fun measures(measureCount: Int, vararg notes: ScoreNote, timeSignature: TimeSignature = TimeSignature.FOUR_FOUR) = Score(
         timeSignature = timeSignature,
-        clef = Clef.TREBLE,
         keySignature = KeySignature.C_MAJOR,
-        measureCount = 1,
+        measureCount = measureCount,
         notes = notes.toList(),
     )
 }

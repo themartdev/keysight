@@ -11,7 +11,13 @@ import kotlin.math.roundToInt
  * score line, then only the remarks that earned their place.
  */
 
-/** The lean, in beats, from which a remark about being ahead of or behind the beat is worth making. */
+/**
+ * The lean, in beats, from which a remark about being ahead of or behind the beat is worth making.
+ *
+ * The lean is the frame every timing mark is measured in, so it is only mentioned when there is
+ * at least one early or late mark for it to explain. On its own it cannot be told apart from the
+ * device's audio latency, and a passage with every note on its own pulse earns no remark.
+ */
 const val NOTABLE_PHASE_BEATS = 0.1
 
 /** The tempo drift from which a remark is worth making. */
@@ -36,8 +42,9 @@ fun remarks(pitch: PitchResult, rhythm: RhythmResult?): List<String> {
     val lines = ArrayList<String>()
     if (pitch.extraCount > 0) lines += if (pitch.extraCount == 1) "1 extra note" else "${pitch.extraCount} extra notes"
     if (rhythm == null) return lines
-    if (rhythm.phaseBeats <= -NOTABLE_PHASE_BEATS) lines += "Slightly ahead of the beat"
-    if (rhythm.phaseBeats >= NOTABLE_PHASE_BEATS) lines += "Slightly behind the beat"
+    val hasTimingMarks = rhythm.earlyCount + rhythm.lateCount > 0
+    if (hasTimingMarks && rhythm.phaseBeats <= -NOTABLE_PHASE_BEATS) lines += "Slightly ahead of the beat"
+    if (hasTimingMarks && rhythm.phaseBeats >= NOTABLE_PHASE_BEATS) lines += "Slightly behind the beat"
     rhythm.tempoRatio?.let { ratio ->
         val drift = ratio - 1.0
         if (abs(drift) >= NOTABLE_TEMPO_DRIFT) {

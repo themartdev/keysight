@@ -9,7 +9,6 @@ import dev.simonmartineau.keysight.attempt.FlashConfig
 import dev.simonmartineau.keysight.data.entity.SessionEntity
 import dev.simonmartineau.keysight.evaluation.PerformanceEvaluator
 import dev.simonmartineau.keysight.midi.MidiEvent
-import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
 import dev.simonmartineau.keysight.score.Score
@@ -39,7 +38,6 @@ class KeySightDatabaseTest {
 
     private val score = Score(
         timeSignature = TimeSignature.FOUR_FOUR,
-        clef = Clef.TREBLE,
         keySignature = KeySignature.C_MAJOR,
         measureCount = 1,
         notes = listOf(ScoreNote("n1", SpelledPitch(Step.C, octave = 4), Ticks.ZERO, Ticks.WHOLE)),

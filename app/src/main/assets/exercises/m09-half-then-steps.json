@@ -5,7 +5,7 @@
       "beatsPerMeasure": 4,
       "beatUnit": 4
     },
-    "clef": "TREBLE",
+    "staves": [{ "clef": "TREBLE" }],
     "keySignature": 0,
     "measureCount": 1,
     "notes": [

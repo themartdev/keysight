@@ -5,6 +5,7 @@ import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
+import dev.simonmartineau.keysight.score.Staff
 import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
 import kotlinx.coroutines.test.runTest
@@ -42,7 +43,7 @@ class BundledExercisesTest {
         repository.all().forEach { exercise ->
             val score = exercise.score
             assertEquals(TimeSignature.FOUR_FOUR, score.timeSignature, exercise.id)
-            assertEquals(Clef.TREBLE, score.clef, exercise.id)
+            assertEquals(listOf(Staff(Clef.TREBLE)), score.staves, exercise.id)
             assertEquals(KeySignature.C_MAJOR, score.keySignature, exercise.id)
             assertEquals(1, score.measureCount, exercise.id)
             assertTrue(exercise.musicalDifficulty in 1..3, exercise.id)
@@ -60,7 +61,7 @@ class BundledExercisesTest {
     @Test
     fun `every exercise lays out inside the fixed envelope`() = runTest {
         repository.all().forEach { exercise ->
-            val layout = ScoreLayoutEngine.layout(exercise.score)
+            val layout = ScoreLayoutEngine.layoutSystem(exercise.score, 0, null, showTimeSignature = true)
             assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, layout.top, exercise.id)
             assertEquals(ScoreLayoutEngine.ENVELOPE_BOTTOM, layout.bottom, exercise.id)
             assertEquals(exercise.score.notes.map { it.id }.toSet(), layout.anchors.keys, exercise.id)

@@ -42,6 +42,8 @@ object BravuraMetrics {
     private val STEM_DOWN_NW = Point(0.0, -0.168)
 
     private val glyphs: Map<Glyph, GlyphMetrics> = mapOf(
+        Glyph.BRACE to box(0.0, 0.0, 0.277, 4.0),
+
         Glyph.NOTEHEAD_WHOLE to box(0.0, -0.5, 1.688, 0.5),
         Glyph.NOTEHEAD_HALF to box(0.0, -0.5, 1.18, 0.5, STEM_UP_SE, STEM_DOWN_NW),
         Glyph.NOTEHEAD_BLACK to box(0.0, -0.5, 1.18, 0.5, STEM_UP_SE, STEM_DOWN_NW),

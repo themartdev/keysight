@@ -1,5 +1,6 @@
 package dev.simonmartineau.keysight.notation
 
+import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.Ticks
 
 /**
@@ -7,27 +8,35 @@ import dev.simonmartineau.keysight.score.Ticks
  * role exists so annotations can tell a notehead from a barline without guessing from
  * geometry.
  */
-enum class Role { STAFF_LINE, BARLINE, CLEF, TIME_SIGNATURE, NOTEHEAD, STEM, LEDGER, ACCIDENTAL, FLAG, REST }
+enum class Role { STAFF_LINE, BARLINE, BRACE, CLEF, KEY_SIGNATURE, TIME_SIGNATURE, NOTEHEAD, STEM, LEDGER, ACCIDENTAL, FLAG, REST }
 
 /**
- * One positioned thing in a [StaffLayout].
+ * One positioned thing in a [SystemLayout].
  *
  * Coordinates are staff spaces: x grows to the right from the layout's left edge, y grows
- * upwards from the bottom staff line. [noteId] is set on everything that belongs to a note
- * (its head, stem, ledger lines and accidental) so a whole note can be tinted at once.
+ * upwards from the bottom line of the system's top staff. [noteId] is set on everything that
+ * belongs to a note (its head, stem, ledger lines and accidental) so a whole note can be
+ * tinted at once. [ticks] is the onset of the note or rest the element belongs to, and null
+ * for the structure around them; a [Mask] hides by it.
  */
 sealed interface Element {
     val role: Role
     val noteId: String?
+    val ticks: Ticks?
 }
 
-/** A font glyph placed by its origin, which SMuFL puts on the baseline at the glyph's left. */
+/**
+ * A font glyph placed by its origin, which SMuFL puts on the baseline at the glyph's left,
+ * drawn at [scale] times the staff size. Only the brace is ever scaled.
+ */
 data class GlyphElement(
     val glyph: Glyph,
     val x: Double,
     val y: Double,
     override val role: Role,
     override val noteId: String? = null,
+    override val ticks: Ticks? = null,
+    val scale: Double = 1.0,
 ) : Element
 
 /** A straight line of the given [thickness], centred on the segment from (x1, y1) to (x2, y2). */
@@ -39,33 +48,56 @@ data class LineElement(
     val thickness: Double,
     override val role: Role,
     override val noteId: String? = null,
+    override val ticks: Ticks? = null,
 ) : Element
+
+/** One staff of a system: which clef it carries and where its bottom line sits. */
+data class StaffFrame(val index: Int, val clef: Clef, val baselineY: Double)
 
 /** Where one note's head sits, for anything drawn relative to it. */
 data class NoteAnchor(
     val noteId: String,
     /** Left edge of the notehead. */
     val x: Double,
+    /** On the note's own staff. */
     val position: StaffPosition,
     val headWidth: Double,
+    val staff: Int,
+    /** The bottom line of the note's staff, in system coordinates. */
+    val baselineY: Double,
+    val ticks: Ticks,
 ) {
-    val y: Double get() = position.y
+    val y: Double get() = baselineY + position.y
 }
 
 /** The x a notehead sounding at [ticks] would be drawn at. */
 data class TimePoint(val ticks: Ticks, val x: Double)
 
+/** Score time from [start] up to but not including [endExclusive]. */
+data class TickRange(val start: Ticks, val endExclusive: Ticks) {
+    init {
+        require(endExclusive > start) { "a range must be non-empty: $start to $endExclusive" }
+    }
+
+    operator fun contains(ticks: Ticks): Boolean = ticks >= start && ticks < endExclusive
+}
+
 /**
- * A laid-out score, in staff spaces, ready to be scaled and painted.
+ * A row of measures laid out across every staff of the score, in staff spaces, ready to be
+ * scaled and painted.
  *
  * [top] and [bottom] bound everything drawn, ledger lines and stems included; the renderer
  * fits them to its height so the engraving never clips. [timeAxis] maps score time to
  * horizontal position for things that were not in the score, such as notes the player added.
+ * [ticks] is the score time the system covers.
  */
-data class StaffLayout(
+data class SystemLayout(
     val width: Double,
     val top: Double,
     val bottom: Double,
+    val staves: List<StaffFrame>,
+    val measures: IntRange,
+    val ticks: TickRange,
     val elements: List<Element>,
     val anchors: Map<String, NoteAnchor>,
     val timeAxis: List<TimePoint>,
@@ -73,6 +105,8 @@ data class StaffLayout(
     init {
         require(width > 0.0) { "width must be positive" }
         require(top > bottom) { "top must be above bottom" }
+        require(staves.isNotEmpty()) { "a system needs a staff" }
+        require(!measures.isEmpty()) { "a system needs a measure" }
         require(timeAxis.isNotEmpty()) { "a layout needs at least one time point" }
         require(timeAxis.zipWithNext().all { (a, b) -> a.ticks < b.ticks && a.x <= b.x }) { "time axis must increase" }
     }
@@ -82,7 +116,7 @@ data class StaffLayout(
     /**
      * The x a notehead starting at [ticks] would be drawn at: on a column when the time is a
      * notated onset, between two columns in proportion otherwise, and clamped to the first
-     * column and the end of the measure beyond them.
+     * column and the end of the system beyond them.
      */
     fun xAtTicks(ticks: Ticks): Double {
         val first = timeAxis.first()

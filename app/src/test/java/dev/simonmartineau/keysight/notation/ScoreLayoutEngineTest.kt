@@ -4,6 +4,7 @@ import dev.simonmartineau.keysight.Fixtures
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Score
+import dev.simonmartineau.keysight.score.Staff
 import dev.simonmartineau.keysight.score.ScoreNote
 import dev.simonmartineau.keysight.score.SpelledPitch
 import dev.simonmartineau.keysight.score.Step
@@ -26,18 +27,36 @@ class ScoreLayoutEngineTest {
 
     private val blackHead = BravuraMetrics.of(Glyph.NOTEHEAD_BLACK)
 
-    private fun single(spelling: SpelledPitch, duration: Ticks = Ticks.QUARTER): StaffLayout =
-        ScoreLayoutEngine.layout(Fixtures.oneMeasure(ScoreNote("n", spelling, Ticks.ZERO, duration)))
+    /** One system at natural width, the time signature shown. */
+    private fun layout(score: Score): SystemLayout = ScoreLayoutEngine.layoutSystem(score, 0, null, showTimeSignature = true)
 
-    private fun StaffLayout.glyphs(role: Role) = elements.filterIsInstance<GlyphElement>().filter { it.role == role }
-    private fun StaffLayout.lines(role: Role) = elements.filterIsInstance<LineElement>().filter { it.role == role }
-    private fun StaffLayout.head(noteId: String) = glyphs(Role.NOTEHEAD).single { it.noteId == noteId }
-    private fun StaffLayout.stem(noteId: String) = lines(Role.STEM).singleOrNull { it.noteId == noteId }
-    private fun StaffLayout.barline() = lines(Role.BARLINE).single()
+    private fun grandStaff(vararg notes: ScoreNote, key: KeySignature = KeySignature.C_MAJOR, measures: Int = 1) = Score(
+        timeSignature = TimeSignature.FOUR_FOUR,
+        keySignature = key,
+        staves = listOf(Staff(Clef.TREBLE), Staff(Clef.BASS)),
+        measureCount = measures,
+        notes = notes.toList(),
+    )
+
+    private fun inKey(key: KeySignature, vararg notes: ScoreNote, measures: Int = 1) =
+        Fixtures.measures(measures, *notes).copy(keySignature = key)
+
+    private fun note(id: String, spelling: SpelledPitch, onset: Ticks, duration: Ticks = Ticks.QUARTER, staff: Int = 0) =
+        ScoreNote(id, spelling, onset, duration, staff = staff)
+
+    private fun single(spelling: SpelledPitch, duration: Ticks = Ticks.QUARTER): SystemLayout =
+        layout(Fixtures.oneMeasure(ScoreNote("n", spelling, Ticks.ZERO, duration)))
+
+    private fun SystemLayout.glyphs(role: Role) = elements.filterIsInstance<GlyphElement>().filter { it.role == role }
+    private fun SystemLayout.lines(role: Role) = elements.filterIsInstance<LineElement>().filter { it.role == role }
+    private fun SystemLayout.head(noteId: String) = glyphs(Role.NOTEHEAD).single { it.noteId == noteId }
+    private fun SystemLayout.stem(noteId: String) = lines(Role.STEM).singleOrNull { it.noteId == noteId }
+    private fun SystemLayout.barlines() = lines(Role.BARLINE)
+    private fun SystemLayout.barline() = barlines().first()
 
     @Test
     fun `five staff lines span the width`() {
-        val layout = ScoreLayoutEngine.layout(Fixtures.cdef)
+        val layout = layout(Fixtures.cdef)
         val lines = layout.lines(Role.STAFF_LINE)
 
         assertEquals(listOf(0.0, 1.0, 2.0, 3.0, 4.0), lines.map { it.y1 })
@@ -51,7 +70,7 @@ class ScoreLayoutEngineTest {
 
     @Test
     fun `the treble clef sits on the G line after the margin`() {
-        val clef = ScoreLayoutEngine.layout(Fixtures.cdef).glyphs(Role.CLEF).single()
+        val clef = layout(Fixtures.cdef).glyphs(Role.CLEF).single()
 
         assertEquals(Glyph.G_CLEF, clef.glyph)
         assertEquals(1.0, clef.y)
@@ -60,8 +79,8 @@ class ScoreLayoutEngineTest {
 
     @Test
     fun `the bass clef sits on the F line`() {
-        val score = Score(TimeSignature.FOUR_FOUR, Clef.BASS, KeySignature.C_MAJOR, 1, listOf(ScoreNote("n", a3, Ticks.ZERO, Ticks.QUARTER)))
-        val layout = ScoreLayoutEngine.layout(score)
+        val score = Fixtures.oneMeasure(ScoreNote("n", a3, Ticks.ZERO, Ticks.QUARTER)).copy(staves = listOf(Staff(Clef.BASS)))
+        val layout = layout(score)
         val clef = layout.glyphs(Role.CLEF).single()
 
         assertEquals(Glyph.F_CLEF, clef.glyph)
@@ -73,7 +92,7 @@ class ScoreLayoutEngineTest {
 
     @Test
     fun `the time signature stacks the beats over the unit, after the clef`() {
-        val layout = ScoreLayoutEngine.layout(Fixtures.cdef)
+        val layout = layout(Fixtures.cdef)
         val clef = layout.glyphs(Role.CLEF).single()
         val digits = layout.glyphs(Role.TIME_SIGNATURE)
 
@@ -87,7 +106,7 @@ class ScoreLayoutEngineTest {
     @Test
     fun `a two digit time signature centres the shorter number`() {
         val score = Fixtures.oneMeasure(ScoreNote("n", a4, Ticks.ZERO, Ticks.EIGHTH), timeSignature = TimeSignature(12, 8))
-        val digits = ScoreLayoutEngine.layout(score).glyphs(Role.TIME_SIGNATURE)
+        val digits = layout(score).glyphs(Role.TIME_SIGNATURE)
 
         assertEquals(listOf(Glyph.TIME_SIG_1, Glyph.TIME_SIG_2, Glyph.TIME_SIG_8), digits.map { it.glyph })
         val one = BravuraMetrics.of(Glyph.TIME_SIG_1)
@@ -102,7 +121,7 @@ class ScoreLayoutEngineTest {
 
     @Test
     fun `heads step up the staff in performance order`() {
-        val layout = ScoreLayoutEngine.layout(Fixtures.cdef)
+        val layout = layout(Fixtures.cdef)
         val heads = listOf("n1", "n2", "n3", "n4").map { layout.head(it) }
 
         assertEquals(listOf(-1.0, -0.5, 0.0, 0.5), heads.map { it.y })
@@ -204,7 +223,7 @@ class ScoreLayoutEngineTest {
             ScoreNote("b", fSharp4, Ticks.HALF, Ticks.QUARTER),
             ScoreNote("c", c6, Ticks.quarters(3), Ticks.QUARTER),
         )
-        val layout = ScoreLayoutEngine.layout(score)
+        val layout = layout(score)
         val ids = score.notes.map { it.id }.toSet()
 
         assertEquals(ids, layout.anchors.keys)
@@ -223,7 +242,7 @@ class ScoreLayoutEngineTest {
             ScoreNote("q1", Fixtures.E4, Ticks.HALF, Ticks.QUARTER),
             ScoreNote("q2", Fixtures.D4, Ticks.quarters(3), Ticks.QUARTER),
         )
-        val layout = ScoreLayoutEngine.layout(score)
+        val layout = layout(score)
         val half = layout.head("h").x
         val first = layout.head("q1").x
         val second = layout.head("q2").x
@@ -235,7 +254,7 @@ class ScoreLayoutEngineTest {
 
     @Test
     fun `the time axis interpolates between onsets and clamps at the ends`() {
-        val layout = ScoreLayoutEngine.layout(Fixtures.cdef)
+        val layout = layout(Fixtures.cdef)
         val heads = listOf("n1", "n2", "n3", "n4").map { layout.head(it).x }
         val endX = layout.barline().x1 - blackHead.width - Spacing.CUE_GAP
 
@@ -248,23 +267,89 @@ class ScoreLayoutEngineTest {
     }
 
     @Test
-    fun `the barline closes the measure and sets the width`() {
-        val layout = ScoreLayoutEngine.layout(Fixtures.cdef)
-        val barline = layout.barline()
+    fun `the final barline closes the score, thin then thick, and sets the width`() {
+        val layout = layout(Fixtures.cdef)
+        val (thin, thick) = layout.barlines()
         val last = layout.head("n4").x
 
-        assertEquals(last + Spacing.advanceFor(Ticks.QUARTER, blackHead.width), barline.x1, 1e-9)
-        assertEquals(barline.x1, barline.x2)
-        assertEquals(0.0, barline.y1)
-        assertEquals(4.0, barline.y2)
-        assertEquals(BravuraMetrics.THIN_BARLINE_THICKNESS, barline.thickness)
-        assertEquals(barline.x1 + barline.thickness / 2 + ScoreLayoutEngine.RIGHT_MARGIN, layout.width, 1e-9)
-        assertEquals(layout.elements.last(), barline)
+        assertEquals(last + Spacing.advanceFor(Ticks.QUARTER, blackHead.width), thin.x1, 1e-9)
+        assertEquals(thin.x1, thin.x2)
+        assertEquals(0.0, thin.y1)
+        assertEquals(4.0, thin.y2)
+        assertEquals(BravuraMetrics.THIN_BARLINE_THICKNESS, thin.thickness)
+        assertEquals(BravuraMetrics.THICK_BARLINE_THICKNESS, thick.thickness)
+        assertEquals(thin.x1 + thin.thickness / 2 + ScoreLayoutEngine.FINAL_BARLINE_GAP + thick.thickness / 2, thick.x1, 1e-9)
+        assertEquals(thick.x1 + thick.thickness / 2 + ScoreLayoutEngine.RIGHT_MARGIN, layout.width, 1e-9)
+        assertEquals(2, layout.barlines().size)
+    }
+
+    @Test
+    fun `measures within a system are separated by thin barlines and a gap`() {
+        val score = inKey(
+            KeySignature.C_MAJOR,
+            note("a", Fixtures.C4, Ticks.ZERO, Ticks.WHOLE),
+            note("b", Fixtures.D4, Ticks.WHOLE, Ticks.WHOLE),
+            note("c", Fixtures.E4, Ticks.WHOLE * 2, Ticks.WHOLE),
+            measures = 3,
+        )
+        val layout = layout(score)
+        val barlines = layout.barlines()
+
+        assertEquals(0..2, layout.measures)
+        assertEquals(TickRange(Ticks.ZERO, Ticks.WHOLE * 3), layout.ticks)
+        assertEquals(4, barlines.size)
+        assertTrue(barlines.dropLast(1).all { it.thickness == BravuraMetrics.THIN_BARLINE_THICKNESS })
+        val wholeHead = BravuraMetrics.of(Glyph.NOTEHEAD_WHOLE)
+        assertEquals(layout.head("a").x + Spacing.advanceFor(Ticks.WHOLE, wholeHead.width), barlines[0].x1, 1e-9)
+        assertEquals(barlines[0].x1 + barlines[0].thickness / 2 + ScoreLayoutEngine.MEASURE_START_GAP, layout.head("b").x, 1e-9)
+        assertEquals(listOf(Ticks.ZERO, Ticks.WHOLE, Ticks.WHOLE * 2, Ticks.WHOLE * 3), layout.timeAxis.map { it.ticks })
+    }
+
+    @Test
+    fun `a system packs the measures that fit its width and stretches columns to fill it`() {
+        val score = inKey(
+            KeySignature.C_MAJOR,
+            note("a", Fixtures.C4, Ticks.ZERO, Ticks.WHOLE),
+            note("b", Fixtures.D4, Ticks.WHOLE, Ticks.WHOLE),
+            note("c", Fixtures.E4, Ticks.WHOLE * 2, Ticks.WHOLE),
+            measures = 3,
+        )
+        val natural = layout(score)
+        val twoMeasures = ScoreLayoutEngine.layoutSystem(score, 0, natural.width - 1.0, showTimeSignature = true)
+        assertEquals(0..1, twoMeasures.measures)
+        assertEquals(natural.width - 1.0, twoMeasures.width, 1e-9)
+
+        val naturalTwo = ScoreLayoutEngine.layoutSystem(score.copy(measureCount = 2, notes = score.notes.take(2)), 0, null, showTimeSignature = true)
+        // Only the room after each note grew; the header did not move.
+        assertEquals(naturalTwo.head("a").x, twoMeasures.head("a").x, 1e-9)
+        assertTrue(twoMeasures.head("b").x - twoMeasures.head("a").x > naturalTwo.head("b").x - naturalTwo.head("a").x)
+
+        val wide = ScoreLayoutEngine.layoutSystem(score, 0, natural.width * 10, showTimeSignature = true)
+        val wholeHead = BravuraMetrics.of(Glyph.NOTEHEAD_WHOLE)
+        val advance = Spacing.advanceFor(Ticks.WHOLE, wholeHead.width)
+        assertEquals(wide.head("a").x + advance * ScoreLayoutEngine.MAX_STRETCH, wide.barlines()[0].x1, 1e-9)
+        assertTrue(wide.width < natural.width * 10)
+
+        val rest = ScoreLayoutEngine.layoutSystem(score, 2, null, showTimeSignature = false)
+        assertEquals(2..2, rest.measures)
+        assertEquals(emptyList(), rest.glyphs(Role.TIME_SIGNATURE))
+        assertEquals(1, rest.glyphs(Role.CLEF).size)
+    }
+
+    @Test
+    fun `every element carries the tick of its note and structure carries none`() {
+        val layout = layout(Fixtures.cdef)
+
+        layout.elements.forEach { element ->
+            val expected = element.noteId?.let { id -> Fixtures.cdef.notes.single { it.id == id }.onset }
+            assertEquals(expected, element.ticks, "$element")
+        }
+        assertEquals(Ticks.QUARTER, layout.anchors.getValue("n2").ticks)
     }
 
     @Test
     fun `the envelope is fixed for staff range content and widens beyond it`() {
-        val usual = ScoreLayoutEngine.layout(Fixtures.cdef)
+        val usual = layout(Fixtures.cdef)
         assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, usual.top)
         assertEquals(ScoreLayoutEngine.ENVELOPE_BOTTOM, usual.bottom)
 
@@ -274,13 +359,117 @@ class ScoreLayoutEngineTest {
     }
 
     @Test
-    fun `an empty measure still has a clef, a signature and a barline`() {
-        val layout = ScoreLayoutEngine.layout(Fixtures.oneMeasure())
+    fun `an empty measure shows a whole rest and still has a clef, a signature and a barline`() {
+        val layout = layout(Fixtures.oneMeasure())
 
         assertEquals(1, layout.glyphs(Role.CLEF).size)
         assertEquals(2, layout.glyphs(Role.TIME_SIGNATURE).size)
-        assertEquals(1, layout.lines(Role.BARLINE).size)
+        assertEquals(2, layout.lines(Role.BARLINE).size)
         assertTrue(layout.anchors.isEmpty())
-        assertEquals(layout.timeAxis.single().x, layout.xAtTicks(Ticks.ZERO))
+        val rest = layout.glyphs(Role.REST).single()
+        assertEquals(Glyph.REST_WHOLE, rest.glyph)
+        assertEquals(3.0, rest.y)
+        assertEquals(Ticks.ZERO, rest.ticks)
+        val measureStart = layout.timeAxis.first().x
+        val metrics = BravuraMetrics.of(Glyph.REST_WHOLE)
+        assertEquals((measureStart + layout.barline().x1) / 2, rest.x + metrics.left + metrics.width / 2, 1e-9)
+        assertEquals(measureStart, layout.xAtTicks(Ticks.ZERO))
+        assertTrue(layout.xAtTicks(Ticks.WHOLE) > measureStart)
+    }
+
+    @Test
+    fun `the key signature writes the sharps and flats in order on every staff`() {
+        val treble = inKey(KeySignature(3), note("n", Fixtures.C4, Ticks.ZERO))
+        val sharps = layout(treble).glyphs(Role.KEY_SIGNATURE)
+        assertEquals(List(3) { Glyph.ACCIDENTAL_SHARP }, sharps.map { it.glyph })
+        // F5 C5 G5 in treble clef: positions 8, 5, 9.
+        assertEquals(listOf(4.0, 2.5, 4.5), sharps.map { it.y })
+        val sharp = BravuraMetrics.of(Glyph.ACCIDENTAL_SHARP)
+        assertEquals(sharps[0].x + sharp.width + ScoreLayoutEngine.KEY_ACCIDENTAL_GAP, sharps[1].x, 1e-9)
+        val clefRight = layout(treble).glyphs(Role.CLEF).single().let { it.x + BravuraMetrics.of(Glyph.G_CLEF).right }
+        assertEquals(clefRight + ScoreLayoutEngine.CLEF_GAP, sharps[0].x + sharp.left, 1e-9)
+        val signatureRight = sharps[2].x + sharp.right
+        assertEquals(signatureRight + ScoreLayoutEngine.KEY_SIGNATURE_GAP, layout(treble).glyphs(Role.TIME_SIGNATURE)[0].x + BravuraMetrics.of(Glyph.TIME_SIG_4).left, 1e-9)
+
+        val grand = grandStaff(note("n", Fixtures.C4, Ticks.ZERO), key = KeySignature(-2))
+        val flats = layout(grand).glyphs(Role.KEY_SIGNATURE)
+        assertEquals(4, flats.size)
+        // B4 E5 in treble: 4, 7; B2 E3 in bass: 2, 5, one staff distance lower.
+        assertEquals(listOf(2.0, 3.5), flats.take(2).map { it.y })
+        assertEquals(listOf(1.0, 2.5).map { it - ScoreLayoutEngine.STAFF_DISTANCE }, flats.drop(2).map { it.y })
+        assertEquals(flats[0].x, flats[2].x)
+    }
+
+    @Test
+    fun `accidentals are written against the key and remembered within the measure`() {
+        val eFlat4 = SpelledPitch(Step.E, alteration = -1, octave = 4)
+        val eFlat5 = SpelledPitch(Step.E, alteration = -1, octave = 5)
+        val score = inKey(
+            KeySignature(-3),
+            note("a", eFlat4, Ticks.ZERO),
+            note("b", Fixtures.E4, Ticks.QUARTER),
+            note("c", Fixtures.E4, Ticks.quarters(2)),
+            note("d", eFlat5, Ticks.quarters(3)),
+        )
+        val accidentals = layout(score).glyphs(Role.ACCIDENTAL)
+
+        assertEquals(listOf("b" to Glyph.ACCIDENTAL_NATURAL), accidentals.map { it.noteId to it.glyph })
+
+        val nextMeasure = inKey(
+            KeySignature(-3),
+            note("a", Fixtures.E4, Ticks.ZERO, Ticks.WHOLE),
+            note("b", Fixtures.E4, Ticks.WHOLE, Ticks.WHOLE),
+            measures = 2,
+        )
+        assertEquals(listOf("a", "b"), layout(nextMeasure).glyphs(Role.ACCIDENTAL).map { it.noteId })
+    }
+
+    @Test
+    fun `a grand staff has a brace, clefs on both staves and barlines spanning them`() {
+        val score = grandStaff(
+            note("t", Fixtures.G4, Ticks.ZERO, Ticks.HALF),
+            note("b", SpelledPitch(Step.C, octave = 3), Ticks.ZERO, Ticks.HALF, staff = 1),
+        )
+        val layout = layout(score)
+
+        assertEquals(listOf(0.0, -ScoreLayoutEngine.STAFF_DISTANCE), layout.staves.map { it.baselineY })
+        assertEquals(10, layout.lines(Role.STAFF_LINE).size)
+        val brace = layout.glyphs(Role.BRACE).single()
+        val metrics = BravuraMetrics.of(Glyph.BRACE)
+        assertEquals(ScoreLayoutEngine.LEFT_MARGIN, brace.x + metrics.left * brace.scale, 1e-9)
+        assertEquals(-ScoreLayoutEngine.STAFF_DISTANCE, brace.y + metrics.bottom * brace.scale, 1e-9)
+        assertEquals(StaffPosition.TOP_LINE.y, brace.y + metrics.top * brace.scale, 1e-9)
+        val clefs = layout.glyphs(Role.CLEF)
+        assertEquals(listOf(Glyph.G_CLEF, Glyph.F_CLEF), clefs.map { it.glyph })
+        assertEquals(listOf(1.0, 3.0 - ScoreLayoutEngine.STAFF_DISTANCE), clefs.map { it.y })
+        assertEquals(clefs[0].x + BravuraMetrics.of(Glyph.G_CLEF).left, clefs[1].x + BravuraMetrics.of(Glyph.F_CLEF).left, 1e-9)
+        layout.barlines().forEach { barline ->
+            assertEquals(-ScoreLayoutEngine.STAFF_DISTANCE, barline.y1)
+            assertEquals(StaffPosition.TOP_LINE.y, barline.y2)
+        }
+        // The two notes share one column, each on its own staff.
+        val treble = layout.anchors.getValue("t")
+        val bass = layout.anchors.getValue("b")
+        assertEquals(treble.x, bass.x)
+        assertEquals(0, treble.staff)
+        assertEquals(1, bass.staff)
+        assertEquals(1.0, treble.y)
+        assertEquals(1.5 - ScoreLayoutEngine.STAFF_DISTANCE, bass.y, 1e-9)
+        // C3 is below the bass staff's middle line: its stem goes up from the head, an octave long.
+        val bassStem = layout.stem("b")!!
+        assertEquals(bass.y + blackHead.stemUpSE!!.y, bassStem.y1, 1e-9)
+        assertEquals(bassStem.y1 + ScoreLayoutEngine.STEM_LENGTH, bassStem.y2, 1e-9)
+        assertEquals(-ScoreLayoutEngine.STAFF_DISTANCE + ScoreLayoutEngine.ENVELOPE_BOTTOM, layout.bottom)
+        assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, layout.top)
+        assertEquals(emptyList(), layout.glyphs(Role.REST))
+    }
+
+    @Test
+    fun `a staff with nothing in a measure rests while the other plays`() {
+        val layout = layout(grandStaff(note("t", Fixtures.G4, Ticks.ZERO, Ticks.WHOLE)))
+        val rest = layout.glyphs(Role.REST).single()
+
+        assertEquals(3.0 - ScoreLayoutEngine.STAFF_DISTANCE, rest.y)
+        assertEquals(Ticks.ZERO, rest.ticks)
     }
 }

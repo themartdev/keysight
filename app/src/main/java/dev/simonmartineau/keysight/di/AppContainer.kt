@@ -12,7 +12,9 @@ import dev.simonmartineau.keysight.exercise.AndroidAssetSource
 import dev.simonmartineau.keysight.exercise.BundledExerciseRepository
 import dev.simonmartineau.keysight.exercise.ExerciseRepository
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
+import dev.simonmartineau.keysight.settings.ContentSettings
 import dev.simonmartineau.keysight.settings.FlashSettings
+import dev.simonmartineau.keysight.settings.SharedPreferencesContentSettings
 import dev.simonmartineau.keysight.settings.SharedPreferencesFlashSettings
 import dev.simonmartineau.keysight.settings.SharedPreferencesThemeSettings
 import dev.simonmartineau.keysight.settings.ThemeSettings
@@ -50,6 +52,8 @@ class AppContainer(context: Context) {
     }
 
     val flashSettings: FlashSettings by lazy { SharedPreferencesFlashSettings(appContext) }
+
+    val contentSettings: ContentSettings by lazy { SharedPreferencesContentSettings(appContext) }
 
     val themeSettings: ThemeSettings by lazy { SharedPreferencesThemeSettings(appContext) }
 

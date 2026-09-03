@@ -3,10 +3,12 @@ package dev.simonmartineau.keysight.ui.practice
 import dev.simonmartineau.keysight.Fixtures
 import dev.simonmartineau.keysight.evaluation.Continuity
 import dev.simonmartineau.keysight.evaluation.NoteOutcome
+import dev.simonmartineau.keysight.evaluation.NoteTiming
 import dev.simonmartineau.keysight.evaluation.Pause
 import dev.simonmartineau.keysight.evaluation.PitchResult
 import dev.simonmartineau.keysight.evaluation.PlayedNote
 import dev.simonmartineau.keysight.evaluation.RhythmResult
+import dev.simonmartineau.keysight.evaluation.TimingJudgement
 import dev.simonmartineau.keysight.score.Pitch
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,7 +29,13 @@ class ResultTextTest {
         tempoRatio: Double? = 1.0,
         pauses: List<Pause> = emptyList(),
         continuity: Continuity = Continuity.GOOD,
-    ) = RhythmResult(emptyList(), phase, tempoRatio, pauses, continuity)
+        timings: List<NoteTiming> = emptyList(),
+    ) = RhythmResult(timings, phase, tempoRatio, pauses, continuity)
+
+    private fun timing(judgement: TimingJudgement, error: Double = 0.0) =
+        NoteTiming("n1", 0.0, error, error, judgement)
+
+    private val oneLate = listOf(timing(TimingJudgement.LATE, 0.3))
 
     @Test
     fun `the score line has pitch, rhythm and continuity`() {
@@ -47,9 +55,18 @@ class ResultTextTest {
     }
 
     @Test
-    fun `leaning on the beat is remarked past a tenth of a beat`() {
-        assertEquals(listOf("Slightly ahead of the beat"), remarks(pitch, rhythm(phase = -0.1)))
-        assertEquals(listOf("Slightly behind the beat"), remarks(pitch, rhythm(phase = 0.12)))
+    fun `leaning on the beat is remarked past a tenth of a beat when a timing mark needs explaining`() {
+        assertEquals(listOf("Slightly ahead of the beat"), remarks(pitch, rhythm(phase = -0.1, timings = oneLate)))
+        assertEquals(listOf("Slightly behind the beat"), remarks(pitch, rhythm(phase = 0.12, timings = oneLate)))
+    }
+
+    @Test
+    fun `a lean with every note on its own pulse earns no remark`() {
+        val onTime = listOf(timing(TimingJudgement.ON_TIME), timing(TimingJudgement.ON_TIME, 0.05))
+
+        assertEquals(emptyList(), remarks(pitch, rhythm(phase = 0.25, timings = onTime)))
+        assertEquals(emptyList(), remarks(pitch, rhythm(phase = -0.25, timings = onTime)))
+        assertEquals(emptyList(), remarks(pitch, rhythm(phase = 0.25)))
     }
 
     @Test

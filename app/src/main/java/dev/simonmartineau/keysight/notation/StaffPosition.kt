@@ -2,7 +2,6 @@ package dev.simonmartineau.keysight.notation
 
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.SpelledPitch
-import dev.simonmartineau.keysight.score.Step
 
 /**
  * Where a note sits on the staff, counted in diatonic steps above the bottom line.
@@ -48,16 +47,22 @@ value class StaffPosition(val value: Int) : Comparable<StaffPosition> {
         private const val FIRST_LEDGER_BELOW = -2
         private const val FIRST_LEDGER_ABOVE = 10
 
-        /** Diatonic index of the note on each clef's bottom line: E4 for treble, G2 for bass. */
-        private fun bottomLineIndex(clef: Clef): Int = when (clef) {
-            Clef.TREBLE -> diatonicIndex(Step.E, octave = 4)
-            Clef.BASS -> diatonicIndex(Step.G, octave = 2)
-        }
+        /**
+         * Where the sharps of a key signature go in treble clef, in signature order: F5 C5 G5
+         * D5 A4 E5 B4. The flats: B4 E5 A4 D5 G4 C5 F4. Bass clef writes each a third lower.
+         */
+        private val TREBLE_SHARPS = listOf(8, 5, 9, 6, 3, 7, 4)
+        private val TREBLE_FLATS = listOf(4, 7, 3, 6, 2, 5, 1)
 
         /** The accidental never moves a note: F sharp sits where F does. */
         fun of(spelling: SpelledPitch, clef: Clef): StaffPosition =
-            StaffPosition(diatonicIndex(spelling.step, spelling.octave) - bottomLineIndex(clef))
+            StaffPosition(spelling.diatonicIndex - clef.bottomLineIndex)
 
-        private fun diatonicIndex(step: Step, octave: Int): Int = octave * Step.entries.size + step.ordinal
+        /** Position of the [index]th accidental of a key signature, 0-based. */
+        fun ofKeySignature(clef: Clef, index: Int, sharps: Boolean): StaffPosition {
+            val treble = (if (sharps) TREBLE_SHARPS else TREBLE_FLATS)[index]
+            val shift = clef.bottomLineIndex - Clef.TREBLE.bottomLineIndex
+            return StaffPosition(treble - (shift % 7 + 7) % 7)
+        }
     }
 }

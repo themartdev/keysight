@@ -4,10 +4,12 @@ package dev.simonmartineau.keysight.notation
  * The SMuFL glyphs the engraving uses, by codepoint in the Private Use Area.
  *
  * SMuFL fixes the codepoints, so any compliant font renders these; Bravura is the one
- * bundled. Glyphs the V1 content never needs (flags, rests, the bass clef, double
- * accidentals) are listed so that Milestone 5 adds layout rules, not font plumbing.
+ * bundled. Glyphs the content does not need yet (flags, the shorter rests, double
+ * accidentals) are listed so that the generator round adds layout rules, not font plumbing.
  */
 enum class Glyph(val codepoint: Int) {
+    BRACE(0xE000),
+
     NOTEHEAD_WHOLE(0xE0A2),
     NOTEHEAD_HALF(0xE0A3),
     NOTEHEAD_BLACK(0xE0A4),
@@ -62,11 +64,11 @@ enum class Glyph(val codepoint: Int) {
         }
 
         /**
-         * The accidental for a [dev.simonmartineau.keysight.score.SpelledPitch.alteration],
-         * or null when none is written.
+         * The accidental that writes a [dev.simonmartineau.keysight.score.SpelledPitch.alteration]
+         * out, natural included. Whether one is needed at all is [AccidentalState]'s call.
          */
-        fun accidentalFor(alteration: Int): Glyph? = when (alteration) {
-            0 -> null
+        fun accidentalGlyph(alteration: Int): Glyph = when (alteration) {
+            0 -> ACCIDENTAL_NATURAL
             1 -> ACCIDENTAL_SHARP
             -1 -> ACCIDENTAL_FLAT
             2 -> ACCIDENTAL_DOUBLE_SHARP

@@ -22,10 +22,12 @@ import dev.simonmartineau.keysight.evaluation.PlayedNote
 import dev.simonmartineau.keysight.evaluation.RhythmAnalysis
 import dev.simonmartineau.keysight.exercise.Exercise
 import dev.simonmartineau.keysight.midi.MidiConnection
-import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
+import dev.simonmartineau.keysight.exercise.Hands
+import dev.simonmartineau.keysight.notation.Mask
 import dev.simonmartineau.keysight.notation.noteMarks
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature
+import dev.simonmartineau.keysight.score.Staff
 import dev.simonmartineau.keysight.score.Pitch
 import dev.simonmartineau.keysight.score.Score
 import dev.simonmartineau.keysight.score.ScoreNote
@@ -33,8 +35,9 @@ import dev.simonmartineau.keysight.score.SpelledPitch
 import dev.simonmartineau.keysight.score.Step
 import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
+import dev.simonmartineau.keysight.settings.ContentConfig
 import dev.simonmartineau.keysight.settings.ThemeMode
-import dev.simonmartineau.keysight.ui.notation.Staff
+import dev.simonmartineau.keysight.ui.notation.Page
 import dev.simonmartineau.keysight.ui.theme.KeySightTheme
 
 /**
@@ -43,10 +46,10 @@ import dev.simonmartineau.keysight.ui.theme.KeySightTheme
  */
 private object PreviewData {
 
-    private fun oneMeasure(clef: Clef, vararg notes: ScoreNote) = Score(
+    private fun oneMeasure(clef: Clef, vararg notes: ScoreNote, key: KeySignature = KeySignature.C_MAJOR) = Score(
         timeSignature = TimeSignature.FOUR_FOUR,
-        clef = clef,
-        keySignature = KeySignature.C_MAJOR,
+        keySignature = key,
+        staves = listOf(Staff(clef)),
         measureCount = 1,
         notes = notes.toList(),
     )
@@ -68,7 +71,7 @@ private object PreviewData {
         ScoreNote("w3", SpelledPitch(Step.F, alteration = 1, octave = 4), Ticks.quarters(3), Ticks.QUARTER),
     )
 
-    /** The same shape in bass clef, for Milestone 5's eyes. */
+    /** The same shape in bass clef. */
     val bass: Score = oneMeasure(
         Clef.BASS,
         ScoreNote("b1", SpelledPitch(Step.C, octave = 3), Ticks.ZERO, Ticks.QUARTER),
@@ -76,7 +79,45 @@ private object PreviewData {
         ScoreNote("b3", SpelledPitch(Step.G, octave = 3), Ticks.quarters(2), Ticks.HALF),
     )
 
+    /** A grand staff in G major with the voice in the left hand and the right hand resting. */
+    val grandStaff: Score = Score(
+        timeSignature = TimeSignature.FOUR_FOUR,
+        keySignature = KeySignature(1),
+        staves = listOf(Staff(Clef.TREBLE), Staff(Clef.BASS)),
+        measureCount = 1,
+        notes = listOf(
+            ScoreNote("g1", SpelledPitch(Step.G, octave = 2), Ticks.ZERO, Ticks.QUARTER, staff = 1),
+            ScoreNote("g2", SpelledPitch(Step.A, octave = 2), Ticks.QUARTER, Ticks.QUARTER, staff = 1),
+            ScoreNote("g3", SpelledPitch(Step.B, octave = 2), Ticks.quarters(2), Ticks.QUARTER, staff = 1),
+            ScoreNote("g4", SpelledPitch(Step.C, octave = 3), Ticks.quarters(3), Ticks.QUARTER, staff = 1),
+        ),
+    )
+
+    /** E flat major with a natural against the key, then the flat restored in the same measure. */
+    val flatKey: Score = oneMeasure(
+        Clef.TREBLE,
+        ScoreNote("f1", SpelledPitch(Step.E, alteration = -1, octave = 4), Ticks.ZERO, Ticks.QUARTER),
+        ScoreNote("f2", SpelledPitch(Step.E, octave = 4), Ticks.QUARTER, Ticks.QUARTER),
+        ScoreNote("f3", SpelledPitch(Step.E, alteration = -1, octave = 4), Ticks.quarters(2), Ticks.QUARTER),
+        ScoreNote("f4", SpelledPitch(Step.B, alteration = -1, octave = 4), Ticks.quarters(3), Ticks.QUARTER),
+        key = KeySignature(-3),
+    )
+
+    /** Four measures, which a phone-width page breaks into two systems. */
+    val fourMeasures: Score = Score(
+        timeSignature = TimeSignature.FOUR_FOUR,
+        keySignature = KeySignature(2),
+        staves = listOf(Staff(Clef.TREBLE), Staff(Clef.BASS)),
+        measureCount = 4,
+        notes = (0 until 16).map { i ->
+            val step = Step.entries[(i * 2) % 7]
+            ScoreNote("m$i", SpelledPitch(step, octave = if (i % 8 < 4) 4 else 3), Ticks.quarters(i), Ticks.QUARTER, staff = if (i % 8 < 4) 0 else 1)
+        },
+    )
+
     val config = FlashConfig(tempoBpm = 80.0, countInMeasures = 1, previewDurationBeats = 4.0, metronomeDuringAttempt = false)
+
+    val content = ContentConfig(KeySignature.C_MAJOR, Hands.RIGHT)
 
     val context = AttemptContext(Exercise("preview-cdef", cdef, musicalDifficulty = 1), config)
 
@@ -106,6 +147,10 @@ private object PreviewData {
 
     val performing = AttemptState.Performing(context, startedAtNanos = 0L, captured = emptyList())
 
+    private val grandStaffContext = AttemptContext(Exercise("preview-grand", grandStaff, musicalDifficulty = 1), config)
+
+    val grandStaffCountingIn = AttemptState.CountingIn(grandStaffContext, startedAtNanos = 0L, notationVisible = true, captured = emptyList())
+
     val evaluating = AttemptState.Evaluating(context, startedAtNanos = 0L, captured = emptyList())
 
     val result = AttemptState.Result(
@@ -125,6 +170,8 @@ private object PreviewData {
         setPreviewBeats = {},
         setTempo = {},
         setMetronomeDuringAttempt = {},
+        setKey = {},
+        setHands = {},
         setTheme = {},
     )
 }
@@ -136,6 +183,7 @@ private fun PreviewScreen(state: AttemptState?) {
             state = state,
             connection = PreviewData.connection,
             config = PreviewData.config,
+            content = PreviewData.content,
             theme = ThemeMode.SYSTEM,
             loadError = null,
             actions = PreviewData.actions,
@@ -155,9 +203,17 @@ private fun CountingInVisiblePreview() = PreviewScreen(PreviewData.countingIn(no
 @Composable
 private fun CountingInHiddenPreview() = PreviewScreen(PreviewData.countingIn(notationVisible = false))
 
-@Preview(name = "Performing", showBackground = true)
+@Preview(name = "Performing, notes masked", showBackground = true)
 @Composable
 private fun PerformingPreview() = PreviewScreen(PreviewData.performing)
+
+@Preview(name = "Counting in, grand staff", showBackground = true)
+@Composable
+private fun GrandStaffPreview() = PreviewScreen(PreviewData.grandStaffCountingIn)
+
+@Preview(name = "Counting in, grand staff, landscape", showBackground = true, widthDp = 800, heightDp = 360)
+@Composable
+private fun GrandStaffLandscapePreview() = PreviewScreen(PreviewData.grandStaffCountingIn)
 
 @Preview(name = "Evaluating", showBackground = true)
 @Composable
@@ -180,25 +236,42 @@ private fun ResultTabletPreview() = PreviewScreen(PreviewData.result)
 private fun AbortedPreview() = PreviewScreen(PreviewData.aborted)
 
 @Composable
-private fun StaffPreview(score: Score, outcomes: List<NoteOutcome> = emptyList()) {
-    val layout = ScoreLayoutEngine.layout(score)
+private fun PagePreview(score: Score, outcomes: List<NoteOutcome> = emptyList(), mask: Mask = Mask.NONE, height: Int = 220) {
     KeySightTheme {
         Surface {
-            Box(Modifier.width(360.dp).height(220.dp)) {
-                Staff(layout, marks = noteMarks(layout, score, outcomes, if (outcomes.isEmpty()) null else PreviewData.rhythm))
+            Box(Modifier.width(360.dp).height(height.dp)) {
+                Page(score, mask = mask) { page ->
+                    noteMarks(page, score, outcomes, if (outcomes.isEmpty()) null else PreviewData.rhythm)
+                }
             }
         }
     }
 }
 
-@Preview(name = "Staff: ledger lines, stems, accidental")
+@Preview(name = "Page: ledger lines, stems, accidental")
 @Composable
-private fun WideStaffPreview() = StaffPreview(PreviewData.wide)
+private fun WidePagePreview() = PagePreview(PreviewData.wide)
 
-@Preview(name = "Staff: bass clef")
+@Preview(name = "Page: bass clef")
 @Composable
-private fun BassStaffPreview() = StaffPreview(PreviewData.bass)
+private fun BassPagePreview() = PagePreview(PreviewData.bass)
 
-@Preview(name = "Staff: annotated")
+@Preview(name = "Page: annotated")
 @Composable
-private fun AnnotatedStaffPreview() = StaffPreview(PreviewData.cdef, PreviewData.outcomes)
+private fun AnnotatedPagePreview() = PagePreview(PreviewData.cdef, PreviewData.outcomes)
+
+@Preview(name = "Page: grand staff in G major, brace and rest")
+@Composable
+private fun GrandStaffPagePreview() = PagePreview(PreviewData.grandStaff, height = 320)
+
+@Preview(name = "Page: E flat major with a natural")
+@Composable
+private fun FlatKeyPagePreview() = PagePreview(PreviewData.flatKey)
+
+@Preview(name = "Page: masked")
+@Composable
+private fun MaskedPagePreview() = PagePreview(PreviewData.cdef, mask = Mask.ALL)
+
+@Preview(name = "Page: four measures on two systems")
+@Composable
+private fun FourMeasurePagePreview() = PagePreview(PreviewData.fourMeasures, height = 640)

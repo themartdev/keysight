@@ -9,8 +9,11 @@ The product plan is `docs/adaptive-sight-reading.md`; its milestone ladder drive
 
 One module, packages by concern, all under `dev.simonmartineau.keysight`:
 
-- `score/` the canonical music model: `Ticks`, `Pitch`, `SpelledPitch`, `ScoreNote`, `Score`.
-- `exercise/` an `Exercise` wraps a `Score`; content is bundled, not stored.
+- `score/` the canonical music model: `Ticks`, `Pitch`, `SpelledPitch`, `KeySignature`, `Staff`,
+  `ScoreNote` (with its staff index), `Score` (a list of staves), and `transposed`, diatonic
+  transposition between major keys.
+- `exercise/` an `Exercise` wraps a `Score`; content is bundled, not stored. `adaptedTo` puts a
+  bundled single-voice exercise in the chosen key on the staves the `Hands` setting asks for.
 - `midi/` `MidiEvent` (raw bytes plus timestamp), `MidiMessage` (decoded), `MidiParser`.
 - `timing/` `MonotonicClock` and `AttemptTimeline`, every scheduled instant of one attempt.
 - `attempt/` `FlashConfig`, `AttemptState`, `AttemptEvent`, the pure `AttemptMachine` reducer,
@@ -20,22 +23,26 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
 - `evaluation/` `PlayedNotes` (MIDI to notes on the beat line), `NoteAlignment` (edit distance
   over pitch and onset), `BeatPhase` (the player's lean on the click, bounded), `RhythmAnalysis`
   (timing, tempo ratio, pauses, continuity), `PerformanceEvaluator` with `EVALUATOR_VERSION`.
-- `settings/` `FlashSettings` and `ThemeSettings` (system, light, dark), SharedPreferences-backed.
+- `settings/` `FlashSettings`, `ContentSettings` (key and hands) and `ThemeSettings` (system,
+  light, dark), SharedPreferences-backed.
 - `data/` Room: entities, DAOs, `KeySightDatabase` (schema version 2, `Migrations.kt`),
   `RoomAttemptHistory`, and the pure mappers.
 - `notation/` the pure layout engine: `StaffPosition`, `Glyph` (SMuFL codepoints),
-  `BravuraMetrics`, `ScoreLayoutEngine` producing a `StaffLayout` in staff-space units, and
+  `BravuraMetrics`, `AccidentalState` (when an accidental is written), `ScoreLayoutEngine`
+  producing a `SystemLayout` (a row of measures across all staves, justified to a width) and a
+  `PageLayout` (systems stacked) in staff-space units, `Mask` (which score time is hidden), and
   `noteMarks`, the one place evaluation outcomes meet notation.
-- `di/` `AppContainer`. `ui/notation/` the Compose Canvas renderer (`Staff`, `drawStaff`) that
-  draws a `StaffLayout` with the bundled Bravura font. `ui/practice/` the one screen, its view
-  model, and `PracticePreviews` with one preview per screen state.
+- `di/` `AppContainer`. `ui/notation/` the Compose Canvas renderer (`Page`, `drawPage`,
+  `drawSystem`) that draws a `PageLayout` with the bundled Bravura font. `ui/practice/` the one
+  screen, its view model, and `PracticePreviews` with one preview per screen state.
 - `app/src/main/res/font/bravura.otf` is Bravura 1.482 (SMuFL, OFL); its licence ships in
   `app/src/main/assets/licenses/`. Glyph metrics are the table in `BravuraMetrics`, checked
   against the font file by `BravuraMetricsTest`.
 - `app/src/main/assets/exercises/` the content pack, one JSON `Exercise` per file, validated
   by `BundledExercisesTest` on every unit test run.
 
-Not built yet: difficulty adaptation, session summaries.
+Not built yet: the continuous masked run, the generator, difficulty adaptation, session summaries;
+the plan's round ladder covers them in order.
 
 ## Build and test
 
@@ -73,9 +80,12 @@ from this environment.
   Doubles are for wall-clock beats in `FlashConfig` and `AttemptTimeline` only.
 - Anything time-related reads from `MonotonicClock` and computes positions from absolute beats.
   Never use `delay` as a source of musical truth, and never introduce a second timer.
-- The evaluator sees `ScoreNote` and `MidiEvent`, never notation. Keep it that way.
-- Notation is laid out in staff spaces, y up from the bottom staff line, by `ScoreLayoutEngine`;
-  only `ui/notation` converts to pixels. Glyphs are placed by their SMuFL origin (baseline, left
+- The evaluator sees `ScoreNote` and `MidiEvent`, never notation. Keep it that way. Alignment is
+  monophonic until the generator round; content for two hands stays one voice at a time.
+- Notation is laid out in staff spaces by `ScoreLayoutEngine`, y up from the bottom line of the
+  system's top staff, each staff carrying its own baseline offset; only `ui/notation` converts
+  to pixels. The staff, clefs, signatures and barlines are always drawn; a `Mask` hides notes
+  by their onset tick, never the score as a whole. Glyphs are placed by their SMuFL origin (baseline, left
   edge) using the `BravuraMetrics` table, never by eyeballed offsets, and `noteMarks` is the
   only place evaluation outcomes meet notation.
 - Raw MIDI is never discarded or overwritten: `midi_events` rows are the three raw bytes and a

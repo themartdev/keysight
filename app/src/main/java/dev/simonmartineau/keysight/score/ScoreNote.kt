@@ -11,6 +11,8 @@ import kotlinx.serialization.Serializable
  *
  * @param onset where the note starts, in ticks from the start of the score.
  * @param duration notated length, not the length the player actually held.
+ * @param staff index into [Score.staves]; 0 on a single staff, 0 for the upper staff of a grand staff.
+ * @param hand kept apart from [staff] because a hand can cross staves; in V1 they agree.
  */
 @Serializable
 data class ScoreNote(
@@ -20,11 +22,13 @@ data class ScoreNote(
     val duration: Ticks,
     val voice: Int = 0,
     val hand: Hand = Hand.RIGHT,
+    val staff: Int = 0,
 ) {
     init {
         require(id.isNotBlank()) { "a note needs an id" }
         require(duration > Ticks.ZERO) { "duration must be positive" }
         require(voice >= 0) { "voice must not be negative" }
+        require(staff >= 0) { "staff must not be negative" }
     }
 
     val pitch: Pitch get() = spelling.pitch

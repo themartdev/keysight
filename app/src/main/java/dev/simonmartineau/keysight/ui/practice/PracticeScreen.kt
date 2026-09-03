@@ -41,13 +41,17 @@ import dev.simonmartineau.keysight.attempt.AttemptState
 import dev.simonmartineau.keysight.attempt.FlashConfig
 import dev.simonmartineau.keysight.di.AppContainer
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
+import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiConnection
-import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
+import dev.simonmartineau.keysight.notation.Mask
+import dev.simonmartineau.keysight.notation.PageLayout
 import dev.simonmartineau.keysight.notation.noteMarks
+import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Score
+import dev.simonmartineau.keysight.settings.ContentConfig
 import dev.simonmartineau.keysight.settings.FlashChoices
 import dev.simonmartineau.keysight.settings.ThemeMode
-import dev.simonmartineau.keysight.ui.notation.Staff
+import dev.simonmartineau.keysight.ui.notation.Page
 
 @Composable
 fun PracticeScreen(container: AppContainer) {
@@ -55,6 +59,7 @@ fun PracticeScreen(container: AppContainer) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val connection by viewModel.connection.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
+    val content by viewModel.content.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val loadError by viewModel.loadError.collectAsStateWithLifecycle()
 
@@ -66,6 +71,7 @@ fun PracticeScreen(container: AppContainer) {
         state = state,
         connection = connection,
         config = config,
+        content = content,
         theme = theme,
         loadError = loadError,
         actions = PracticeActions(
@@ -76,6 +82,8 @@ fun PracticeScreen(container: AppContainer) {
             setPreviewBeats = viewModel::setPreviewBeats,
             setTempo = viewModel::setTempo,
             setMetronomeDuringAttempt = viewModel::setMetronomeDuringAttempt,
+            setKey = viewModel::setKey,
+            setHands = viewModel::setHands,
             setTheme = viewModel::setTheme,
         ),
     )
@@ -89,6 +97,8 @@ class PracticeActions(
     val setPreviewBeats: (Double) -> Unit,
     val setTempo: (Double) -> Unit,
     val setMetronomeDuringAttempt: (Boolean) -> Unit,
+    val setKey: (KeySignature) -> Unit,
+    val setHands: (Hands) -> Unit,
     val setTheme: (ThemeMode) -> Unit,
 )
 
@@ -97,6 +107,7 @@ fun PracticeContent(
     state: AttemptState?,
     connection: MidiConnection,
     config: FlashConfig,
+    content: ContentConfig,
     theme: ThemeMode,
     loadError: String?,
     actions: PracticeActions,
@@ -114,7 +125,7 @@ fun PracticeContent(
                 ThemeMenu(theme, actions.setTheme)
             }
             Spacer(Modifier.height(4.dp))
-            SettingsRow(config, settingsEnabled, actions.setPreviewBeats, actions.setTempo, actions.setMetronomeDuringAttempt)
+            SettingsRow(config, content, settingsEnabled, actions)
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -148,28 +159,27 @@ private fun MidiStatusRow(connection: MidiConnection, modifier: Modifier = Modif
 }
 
 @Composable
-private fun SettingsRow(
-    config: FlashConfig,
-    enabled: Boolean,
-    onPreview: (Double) -> Unit,
-    onTempo: (Double) -> Unit,
-    onMetronome: (Boolean) -> Unit,
-) {
+private fun SettingsRow(config: FlashConfig, content: ContentConfig, enabled: Boolean, actions: PracticeActions) {
     Column {
         Text("Preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             FlashChoices.PREVIEW_BEATS.forEach { beats ->
                 FilterChip(
                     selected = beats == config.previewDurationBeats,
-                    onClick = { onPreview(beats) },
+                    onClick = { actions.setPreviewBeats(beats) },
                     enabled = enabled,
                     label = { Text(beats.beatsLabel()) },
                 )
             }
         }
         Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            ChoiceMenu(content.keySignature.majorName, KeySignature.ALL, enabled, { it.majorName }, actions.setKey)
+            ChoiceMenu(content.hands.label, Hands.entries, enabled, { it.label }, actions.setHands)
+        }
+        Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            TempoMenu(config.tempoBpm, enabled, onTempo)
+            ChoiceMenu(config.tempoBpm.bpmLabel(), FlashChoices.TEMPOS_BPM, enabled, { it.bpmLabel() }, actions.setTempo)
             Spacer(Modifier.weight(1f))
             Text(
                 "Click while playing",
@@ -177,10 +187,12 @@ private fun SettingsRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.width(8.dp))
-            Switch(checked = config.metronomeDuringAttempt, onCheckedChange = onMetronome, enabled = enabled)
+            Switch(checked = config.metronomeDuringAttempt, onCheckedChange = actions.setMetronomeDuringAttempt, enabled = enabled)
         }
     }
 }
+
+private fun Double.bpmLabel(): String = "${toInt()} bpm"
 
 @Composable
 private fun ThemeMenu(theme: ThemeMode, onTheme: (ThemeMode) -> Unit) {
@@ -209,20 +221,21 @@ private fun ThemeMode.label(): String = when (this) {
     ThemeMode.DARK -> "Dark theme"
 }
 
+/** An outlined button showing [current] that opens a menu of [choices]. */
 @Composable
-private fun TempoMenu(tempoBpm: Double, enabled: Boolean, onTempo: (Double) -> Unit) {
+private fun <T> ChoiceMenu(current: String, choices: List<T>, enabled: Boolean, label: (T) -> String, onChoice: (T) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { open = true }, enabled = enabled) {
-            Text("${tempoBpm.toInt()} bpm")
+            Text(current)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            FlashChoices.TEMPOS_BPM.forEach { bpm ->
+            choices.forEach { choice ->
                 DropdownMenuItem(
-                    text = { Text("${bpm.toInt()} bpm") },
+                    text = { Text(label(choice)) },
                     onClick = {
                         open = false
-                        onTempo(bpm)
+                        onChoice(choice)
                     },
                 )
             }
@@ -231,9 +244,6 @@ private fun TempoMenu(tempoBpm: Double, enabled: Boolean, onTempo: (Double) -> U
 }
 
 private fun Double.beatsLabel(): String = if (this == this.toInt().toDouble()) this.toInt().toString() else this.toString()
-
-/** Keeps the notation area the same height whatever is in it, so nothing jumps when it appears. */
-private val StageHeight = 220.dp
 
 @Composable
 private fun Stage(state: AttemptState?, loadError: String?) {
@@ -247,24 +257,16 @@ private fun Stage(state: AttemptState?, loadError: String?) {
             Text("Ready", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(8.dp))
             Text(
-                "The music shows during the count-in and disappears when you start playing.",
+                "The music shows during the count-in and its notes disappear when you start playing.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
         }
-        is AttemptState.CountingIn -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.height(StageHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                if (state.notationVisible) ExerciseStaff(state.context.exercise.score)
-            }
-            Spacer(Modifier.height(24.dp))
+        is AttemptState.CountingIn -> PageStage(state.context.exercise.score, mask = if (state.notationVisible) Mask.NONE else Mask.ALL) {
             BeatIndicator(state.context.timeline, state.startedAtNanos)
         }
-        is AttemptState.Performing -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.height(StageHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Play", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
-            }
-            Spacer(Modifier.height(24.dp))
+        is AttemptState.Performing -> PageStage(state.context.exercise.score, mask = Mask.ALL) {
             BeatIndicator(state.context.timeline, state.startedAtNanos)
         }
         is AttemptState.Evaluating -> CircularProgressIndicator()
@@ -277,6 +279,18 @@ private fun Stage(state: AttemptState?, loadError: String?) {
     }
 }
 
+/** The page filling the stage, with [below] under it. */
+@Composable
+private fun PageStage(score: Score, mask: Mask, evaluation: EvaluationResult? = null, below: @Composable () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            ExercisePage(score, mask, evaluation)
+        }
+        Spacer(Modifier.height(16.dp))
+        below()
+    }
+}
+
 private fun AbortReason.message(): String = when (this) {
     AbortReason.CANCELLED -> "You stopped it."
     AbortReason.MIDI_DISCONNECTED -> "The keyboard disconnected."
@@ -286,7 +300,7 @@ private fun AbortReason.message(): String = when (this) {
 @Composable
 private fun ResultPanel(result: AttemptState.Result) {
     val pitch = result.evaluation.pitch
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
         Text(
             "${pitch.correctCount} / ${pitch.expectedCount} notes correct",
             style = MaterialTheme.typography.headlineMedium,
@@ -297,9 +311,9 @@ private fun ResultPanel(result: AttemptState.Result) {
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(16.dp))
-        Box(Modifier.height(StageHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            ExerciseStaff(result.context.exercise.score, result.evaluation)
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            ExercisePage(result.context.exercise.score, Mask.NONE, result.evaluation)
         }
         remarks(pitch, result.evaluation.rhythm).forEach { remark ->
             Text(
@@ -313,16 +327,15 @@ private fun ResultPanel(result: AttemptState.Result) {
 }
 
 /**
- * The engraved exercise, laid out once per score and, after an attempt, annotated with the
- * evaluator's outcomes.
+ * The engraved exercise, laid out for the space it gets and, after an attempt, annotated
+ * with the evaluator's outcomes.
  */
 @Composable
-private fun ExerciseStaff(score: Score, evaluation: EvaluationResult? = null) {
-    val layout = remember(score) { ScoreLayoutEngine.layout(score) }
-    val marks = remember(layout, evaluation) {
-        if (evaluation == null) emptyList() else noteMarks(layout, score, evaluation.pitch.outcomes, evaluation.rhythm)
+private fun ExercisePage(score: Score, mask: Mask, evaluation: EvaluationResult? = null) {
+    val marks = remember(score, evaluation) {
+        { page: PageLayout -> if (evaluation == null) emptyList() else noteMarks(page, score, evaluation.pitch.outcomes, evaluation.rhythm) }
     }
-    Staff(layout, Modifier.fillMaxSize(), marks)
+    Page(score, Modifier.fillMaxSize(), mask, marks)
 }
 
 @Composable
