@@ -23,6 +23,7 @@ import dev.simonmartineau.keysight.evaluation.TimingJudgement
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.VisibilityMode
+import dev.simonmartineau.keysight.run.lookaheadLabel
 import dev.simonmartineau.keysight.run.generatedSegment
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature

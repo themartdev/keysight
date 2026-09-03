@@ -49,7 +49,11 @@ class RunController(
     private var runJob: Job? = null
     private var source: SegmentSource? = null
     private var startedAtEpochMillis = 0L
-    private var sessionId: String? = null
+
+    private val _sessionId = MutableStateFlow<String?>(null)
+
+    /** The session the runs are recorded into, opened by the first run recorded; null before that and after [endSession]. */
+    val sessionId: StateFlow<String?> = _sessionId.asStateFlow()
 
     /**
      * Makes [context] the current run, with [source] supplying the segments of an open-ended
@@ -108,8 +112,8 @@ class RunController(
 
     /** Closes the session, if one was opened. Safe after [scope] is gone: persistence has its own scope. */
     fun endSession() {
-        val id = sessionId ?: return
-        sessionId = null
+        val id = _sessionId.value ?: return
+        _sessionId.value = null
         persistScope.launch { history.endSession(id) }
     }
 
@@ -181,7 +185,7 @@ class RunController(
     private fun persist(pending: PendingRecord, evaluations: List<EvaluationResult>) {
         val startedAt = startedAtEpochMillis
         persistScope.launch {
-            val session = sessionId ?: history.startSession().also { sessionId = it }
+            val session = _sessionId.value ?: history.startSession().also { _sessionId.value = it }
             val record = RunRecord(
                 id = ids(),
                 sessionId = session,

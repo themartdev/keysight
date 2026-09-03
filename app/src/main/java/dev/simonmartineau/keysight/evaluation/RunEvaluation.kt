@@ -41,12 +41,15 @@ data class RunEvaluation(
      */
     fun weakestSegments(limit: Int = 3): List<Int> =
         segments.withIndex()
-            .filter { (_, result) -> result.pitch.accuracy < 1.0 || result.pitch.extraCount > 0 || (result.rhythm?.accuracy ?: 1.0) < 1.0 }
-            .sortedWith(compareBy({ it.value.pitch.accuracy }, { it.value.rhythm?.accuracy ?: 1.0 }, { it.index }))
+            .filter { (_, result) -> result.hasFault }
+            .sortedWith(compareBy<IndexedValue<EvaluationResult>, EvaluationResult>(WEAKNESS) { it.value }.thenBy { it.index })
             .take(limit)
             .map { it.index + 1 }
 
     companion object {
         val EMPTY = RunEvaluation(emptyList(), phaseBeats = 0.0)
+
+        /** Worst first: by pitch accuracy, then rhythm accuracy; the one rule a run's weakest bars and a session's share. */
+        val WEAKNESS: Comparator<EvaluationResult> = compareBy({ it.pitch.accuracy }, { it.rhythm?.accuracy ?: 1.0 })
     }
 }

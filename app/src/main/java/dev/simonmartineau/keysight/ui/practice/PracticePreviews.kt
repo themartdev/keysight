@@ -262,6 +262,7 @@ private object PreviewData {
         setHands = {},
         setAccompaniment = {},
         setTheme = {},
+        history = {},
     )
 }
 

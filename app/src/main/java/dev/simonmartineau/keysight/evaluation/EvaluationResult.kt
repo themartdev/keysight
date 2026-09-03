@@ -66,4 +66,8 @@ data class EvaluationResult(
     val evaluatorVersion: Int,
     val pitch: PitchResult,
     val rhythm: RhythmResult? = null,
-)
+) {
+    /** Whether anything went wrong: a wrong, missing or extra note, or a note early or late. */
+    val hasFault: Boolean
+        get() = pitch.accuracy < 1.0 || pitch.extraCount > 0 || (rhythm?.accuracy ?: 1.0) < 1.0
+}

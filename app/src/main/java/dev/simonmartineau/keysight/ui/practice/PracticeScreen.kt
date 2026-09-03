@@ -47,7 +47,6 @@ import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.notation.NoteMark
 import dev.simonmartineau.keysight.notation.PageLayout
 import dev.simonmartineau.keysight.notation.noteMarks
-import dev.simonmartineau.keysight.run.AbortReason
 import dev.simonmartineau.keysight.run.MetronomeMode
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunContext
@@ -60,12 +59,13 @@ import dev.simonmartineau.keysight.settings.ContentConfig
 import dev.simonmartineau.keysight.settings.RunChoices
 import dev.simonmartineau.keysight.settings.ThemeMode
 import dev.simonmartineau.keysight.evaluation.RunEvaluation
+import dev.simonmartineau.keysight.run.beatsLabel
 import dev.simonmartineau.keysight.ui.notation.RunPage
-import dev.simonmartineau.keysight.ui.notation.RunSummaryPage
 import kotlin.math.floor
 
+/** The practice screen; [onHistory] opens history with this screen's session, if a run has been recorded into one. */
 @Composable
-fun PracticeScreen(container: AppContainer) {
+fun PracticeScreen(container: AppContainer, onHistory: (sessionId: String?) -> Unit) {
     val viewModel: PracticeViewModel = viewModel(factory = PracticeViewModel.factory(container))
     val state by viewModel.state.collectAsStateWithLifecycle()
     val connection by viewModel.connection.collectAsStateWithLifecycle()
@@ -73,6 +73,7 @@ fun PracticeScreen(container: AppContainer) {
     val content by viewModel.content.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val nextRun by viewModel.nextRun.collectAsStateWithLifecycle()
+    val sessionId by viewModel.sessionId.collectAsStateWithLifecycle()
 
     LifecycleStartEffect(Unit) {
         onStopOrDispose { viewModel.onBackgrounded() }
@@ -99,6 +100,7 @@ fun PracticeScreen(container: AppContainer) {
             setHands = viewModel::setHands,
             setAccompaniment = viewModel::setAccompaniment,
             setTheme = viewModel::setTheme,
+            history = { onHistory(sessionId) },
         ),
     )
 }
@@ -117,6 +119,7 @@ class PracticeActions(
     val setHands: (Hands) -> Unit,
     val setAccompaniment: (Accompaniment) -> Unit,
     val setTheme: (ThemeMode) -> Unit,
+    val history: () -> Unit,
 )
 
 /**
@@ -144,6 +147,9 @@ fun PracticeContent(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 MidiStatusRow(connection, Modifier.weight(1f))
+                if (settingsShown) {
+                    TextButton(onClick = actions.history) { Text("History") }
+                }
                 ThemeMenu(theme, actions.setTheme)
             }
             if (settingsShown) {
@@ -324,7 +330,7 @@ private fun Stage(state: RunState?, nextRun: Decision?) {
         is RunState.Aborted -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Run stopped", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
-            Text(state.reason.message(), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Text(abortMessage(state.reason), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             nextRun?.let(::nextRunLine)?.let { line ->
                 Spacer(Modifier.height(8.dp))
                 Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
@@ -385,12 +391,6 @@ private fun RunStage(state: RunState.Running) {
     }
 }
 
-private fun AbortReason.message(): String = when (this) {
-    AbortReason.CANCELLED -> "You stopped it during the count-in."
-    AbortReason.MIDI_DISCONNECTED -> "The keyboard disconnected."
-    AbortReason.BACKGROUNDED -> "The app went to the background."
-}
-
 /** The marks of [evaluation] on the pages of [context]'s score, rebuilt only when a commit lands. */
 @Composable
 private fun rememberMarks(context: RunContext, evaluation: RunEvaluation): (PageLayout) -> List<NoteMark> {
@@ -405,45 +405,14 @@ private fun rememberMarks(context: RunContext, evaluation: RunEvaluation): (Page
 
 @Composable
 private fun SummaryPanel(summary: RunState.Summary, nextRun: Decision?) {
-    val evaluation = summary.evaluation
-    val pitch = evaluation.pitch
-    val rhythm = evaluation.rhythm
     val performed = summary.performed
-    val marks = remember(summary) {
-        { page: PageLayout -> noteMarks(page, performed.score, pitch.outcomes, rhythm) }
-    }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
-        Text(
-            summaryHeader(summary.context.config, performed.score, summary.lastSegment),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "${pitch.correctCount} / ${pitch.expectedCount} notes correct",
-            style = MaterialTheme.typography.headlineMedium,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            scoreLine(pitch, rhythm),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            RunSummaryPage(performed.score, Modifier.fillMaxSize(), marks)
-        }
-        val lines = remarks(pitch, rhythm) + listOfNotNull(weakestBarsLine(evaluation)) +
-            levelChangeLines(performed.segments) + listOfNotNull(nextRun?.let(::nextRunLine))
-        lines.forEach { remark ->
-            Text(
-                remark,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-        }
-    }
+    RunSummaryContent(
+        config = summary.context.config,
+        score = performed.score,
+        segments = performed.segments,
+        evaluation = summary.evaluation,
+        linesAfter = listOfNotNull(nextRun?.let(::nextRunLine)),
+    )
 }
 
 @Composable

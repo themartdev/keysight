@@ -130,7 +130,8 @@ Built and verified:
 - the difficulty controller: a window of recent committed bars, one dimension moved at a time, the lookahead between runs and the music within an open-ended run, its state stored, every move named on the summary;
 - eighth notes: flags and beams in the layout, a rhythm vocabulary in which eighths come in pairs on a beat, the rung above quarters on the rhythm ladder, fixtures on both clefs in three keys;
 - rests: silences derived from the score and split into rests by the layout, a rest of any note value in the vocabulary where one may go, the rests rung after rhythm on the controller's walk, fixtures on both clefs in three keys;
-- accidentals: one chromatic neighbour per bar resolving by step, spelled by transposition so a natural appears where the key alters the letter and never a double, the accidentals rung after rests on the controller's walk, fixtures on both clefs in four keys.
+- accidentals: one chromatic neighbour per bar resolving by step, spelled by transposition so a natural appears where the key alters the letter and never a double, the accidentals rung after rests on the controller's walk, fixtures on both clefs in four keys;
+- history and the session summary: sessions newest first, each expandable to its pooled summary and its runs, every run opening its annotated page, every judgement re-evaluated to the current evaluator version as it is read.
 
 Next, in the order of section 13, one generator dimension at a time: chords, other meters, syncopation, and the cadence on the last bar of a fixed-length run.
 
@@ -232,6 +233,29 @@ Needs work: descending 4ths, left-hand entries
 
 The "needs work" lines arrive with the generator, since it knows what each segment was made of.
 
+### Session summary
+
+A session is the practice screen's lifetime: it opens with the first run recorded and closes when the screen is left.
+Its summary is the history screen's top card, expanded when the player arrives from practice, and the same card serves every past session:
+
+```text
+This session
+3 runs   14 bars
+Pitch 91%   Rhythm 84%
+
+Started: 4 beats ahead, up to thirds, five notes, quarter notes, no rests, no accidentals.
+Ended: 3 beats ahead, up to fourths, five notes, quarter notes, no rests, no accidentals.
+Harder from bar 3 of run 2: up to fourths
+Harder from run 3: 3 beats ahead
+
+Weakest bars: Run 1, bar 2   Run 3, bar 2
+```
+
+The numbers are pooled by their counts, so the session's pitch accuracy is the sum of the runs' correct notes over the sum of their expected notes, the same numbers each run's score line shows.
+The moves are read off the stored configurations, within a run at the bar the level changed and between runs at the run, and only what the stored data proves is listed: a change of mode, key or hands is the player's and is not a move.
+Every move and every weakest bar names a run of the list below and opens that run's page, the whole score open with its marks, so every remark points at something visible.
+A run whose stored judgement is older than the current evaluator is re-evaluated from its segments and raw MIDI as it is read, and the result is stored beside the old judgement, never over it.
+
 ---
 
 ## 7. Content: generated, not curated
@@ -324,11 +348,14 @@ run/         RunConfig, VisibilityPolicy, the pure run reducer and its controlle
 audio/       ClickTrack, AudioTrackMetronome
 evaluation/  PlayedNotes, NoteAlignment, BeatPhase, RhythmAnalysis, incremental PerformanceEvaluator
 difficulty/  the controller and the recent-performance window
+history/     the read side of history: stored runs at the current version, the session summary
 settings/    run and theme settings
 data/        Room entities, DAOs, migrations, mappers
 notation/    the layout engine: systems, pages, the mask by tick
-ui/          the Compose renderer and the practice screen
+ui/          the Compose renderer, the practice screen, the history screen and the run page
 ```
+
+Navigation is a sealed `Screen` state in the activity, practice to history to a run's page and back, without a navigation library.
 
 `run/` replaced `attempt/` in Round 6; `CLAUDE.md` names what each package holds today.
 
@@ -404,6 +431,7 @@ Evaluation
 - segmentId, evaluatorVersion, resultJson
 
 Session
+- id, startedAt, endedAt      the practice screen's lifetime from its first recorded run
 
 DifficultyState
 - one row: the musical level and the dimension moved last, as JSON
@@ -516,12 +544,20 @@ Built:
 - The evaluator checked on an altered note: right at its own pitch, a wrong pitch at its diatonic neighbour; its version unchanged. A cue beside an altered note always carries its accidental.
 - Device check: sharps, flats and naturals at the phone's staff size on both staves, a natural after a sharp in the same bar, a cue with its flat beside a written natural, a run at the accidentals rung in a flat key, the level line reading "with accidentals".
 
+### Round 12: history and session summary
+
+Built:
+
+- `history/`, pure: a stored run with the judgement of each committed segment, current or not against the evaluator version; a reader that re-evaluates an older run from its segments and raw MIDI as it is read and stores the result under the current version beside the old one; the session pooled by counts, the level at its first and last bar, every move as it was announced, and the weakest bars across the session, each naming its run.
+- The history screen: sessions newest first, the practice screen's own expanded on arrival as the session summary, each expandable to its summary and its runs (time, length, mode and lookahead, key and hands, the level line, the score line, why it stopped); every run, move and weakest bar opening the run's page, the practice summary of that run with the score open and its marks.
+- Navigation as a sealed screen state in the activity, back retracing the step; no schema change.
+- Device check: the History button after a run, this session expanded with its runs landing, a run page's marks on the right notes, back returning to the list and then to practice, a rotation on each screen, and a phone's older history opened and re-evaluated once.
+
 ### After
 
 - Generator dimensions one at a time: chords, other meters, syncopation, each with fixtures first and a rung on its ladder.
 - Mode, staves and key on the controller's walk.
 - Latency calibration.
-- History and session summary screens.
 - A real corpus, segmented into runs, once generated material stops being enough.
 - The learner model.
 

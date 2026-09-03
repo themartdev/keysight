@@ -7,6 +7,15 @@ import kotlinx.serialization.Serializable
 import kotlin.math.min
 
 /**
+ * The difference between two levels: the dimensions that moved, in walk order, whether the
+ * first of them got harder, and the level reached. [what] names the rungs reached, "up to
+ * fourths", the way a move is announced.
+ */
+data class LevelChange(val dimensions: List<Dimension>, val harder: Boolean, val after: MusicalLevel) {
+    val what: String get() = dimensions.joinToString(", ") { after.label(it) }
+}
+
+/**
  * The controller's position on the musical dimensions: the generator fields it owns, as
  * values rather than rung indices, so a stored level keeps its meaning when a ladder is
  * reshaped. [applyTo] lays them over the player's own choices (key, hands, accompaniment,
@@ -68,6 +77,13 @@ data class MusicalLevel(
     /** "Up to thirds, five notes, quarter notes, no rests, no accidentals." */
     val description: String
         get() = MUSICAL_DIMENSIONS.joinToString(", ", postfix = ".") { label(it) }.replaceFirstChar { it.uppercase() }
+
+    /** What changed from this level to [after], or null when nothing did. */
+    fun changeTo(after: MusicalLevel): LevelChange? {
+        val changed = MUSICAL_DIMENSIONS.filter { rank(it) != after.rank(it) }
+        if (changed.isEmpty()) return null
+        return LevelChange(changed, harder = after.rank(changed.first()) > rank(changed.first()), after = after)
+    }
 
     companion object {
         /** The dimensions a level has a position on, in walk order. */

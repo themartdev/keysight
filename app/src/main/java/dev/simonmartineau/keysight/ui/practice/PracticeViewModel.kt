@@ -67,6 +67,9 @@ class PracticeViewModel(
     val content: StateFlow<ContentConfig> = contentSettings.config
     val theme: StateFlow<ThemeMode> = themeSettings.mode
 
+    /** The session this screen's runs are recorded into, once the first has been. */
+    val sessionId: StateFlow<String?> = controller.sessionId
+
     private val _nextRun = MutableStateFlow<Decision?>(null)
 
     /** What the controller decided when the last run ended, until the next run is built. */

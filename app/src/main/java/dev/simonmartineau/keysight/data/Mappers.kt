@@ -6,11 +6,14 @@ import dev.simonmartineau.keysight.data.entity.EvaluationResultEntity
 import dev.simonmartineau.keysight.data.entity.MidiEventEntity
 import dev.simonmartineau.keysight.data.entity.RunEntity
 import dev.simonmartineau.keysight.data.entity.SegmentEntity
+import dev.simonmartineau.keysight.data.entity.SessionEntity
 import dev.simonmartineau.keysight.difficulty.DifficultyState
 import dev.simonmartineau.keysight.difficulty.SegmentEvidence
 import dev.simonmartineau.keysight.difficulty.evidenceOf
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.exercise.ExerciseConfig
+import dev.simonmartineau.keysight.history.SessionRecord
+import dev.simonmartineau.keysight.history.StoredRun
 import dev.simonmartineau.keysight.midi.MidiEvent
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunRecord
@@ -76,6 +79,22 @@ fun RunEntity.toRecord(segments: List<SegmentEntity>, events: List<MidiEventEnti
     events = events.map { it.toMidiEvent() },
     seed = seed,
 )
+
+/**
+ * A run with its judgements as history reads it, or null when its rows cannot be read: a run
+ * written by a version of the app this one cannot decode is left out of history rather than
+ * taking the screen down.
+ */
+fun RunEntity.toStoredRun(segments: List<SegmentEntity>, events: List<MidiEventEntity>, evaluations: List<EvaluationResultEntity>): StoredRun? =
+    try {
+        StoredRun(toRecord(segments, events), evaluations.sortedBy { it.segmentId.substringAfterLast(':').toInt() }.map { it.toResult() })
+    } catch (e: IllegalArgumentException) {
+        null
+    } catch (e: IllegalStateException) {
+        null
+    }
+
+fun SessionEntity.toRecord(): SessionRecord = SessionRecord(id, startedAtEpochMillis, endedAtEpochMillis)
 
 fun MidiEvent.toEntity(runId: String): MidiEventEntity = MidiEventEntity(
     runId = runId,

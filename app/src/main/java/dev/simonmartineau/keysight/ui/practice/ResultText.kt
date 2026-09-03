@@ -3,16 +3,19 @@ package dev.simonmartineau.keysight.ui.practice
 import dev.simonmartineau.keysight.difficulty.Decision
 import dev.simonmartineau.keysight.difficulty.Dimension
 import dev.simonmartineau.keysight.difficulty.Direction
-import dev.simonmartineau.keysight.difficulty.MusicalLevel
 import dev.simonmartineau.keysight.evaluation.Continuity
 import dev.simonmartineau.keysight.evaluation.PitchResult
 import dev.simonmartineau.keysight.evaluation.RhythmResult
 import dev.simonmartineau.keysight.evaluation.RunEvaluation
+import dev.simonmartineau.keysight.history.levelChangesWithin
+import dev.simonmartineau.keysight.history.musicalLevel
+import dev.simonmartineau.keysight.run.AbortReason
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.Segment
-import dev.simonmartineau.keysight.run.SegmentOrigin
 import dev.simonmartineau.keysight.run.VisibilityMode
+import dev.simonmartineau.keysight.run.beatsLabel
+import dev.simonmartineau.keysight.run.lookaheadLabel
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.Score
 import kotlin.math.abs
@@ -34,6 +37,13 @@ const val NOTABLE_PHASE_BEATS = 0.1
 
 /** The tempo drift from which a remark is worth making. */
 const val NOTABLE_TEMPO_DRIFT = 0.05
+
+/** Why a run stopped early, for the player. */
+fun abortMessage(reason: AbortReason): String = when (reason) {
+    AbortReason.CANCELLED -> "You stopped it during the count-in."
+    AbortReason.MIDI_DISCONNECTED -> "The keyboard disconnected."
+    AbortReason.BACKGROUNDED -> "The app went to the background."
+}
 
 fun continuityLabel(continuity: Continuity): String = when (continuity) {
     Continuity.GOOD -> "Good"
@@ -60,9 +70,9 @@ fun handsLabel(score: Score): String = when {
 }
 
 fun scoreLine(pitch: PitchResult, rhythm: RhythmResult?): String {
-    val parts = mutableListOf("Pitch ${percent(pitch.accuracy)}")
+    val parts = mutableListOf("Pitch ${percentLabel(pitch.accuracy)}")
     if (rhythm != null) {
-        parts += "Rhythm ${percent(rhythm.accuracy)}"
+        parts += "Rhythm ${percentLabel(rhythm.accuracy)}"
         parts += "Continuity ${continuityLabel(rhythm.continuity)}"
     }
     return parts.joinToString("   ")
@@ -98,24 +108,17 @@ fun weakestBarsLine(evaluation: RunEvaluation): String? {
  * The level the run is read at, "Up to thirds, five notes, quarter notes.", from its first
  * bar's configuration; null for content that was not generated.
  */
-fun levelLine(context: RunContext): String? =
-    (context.segments.first().origin as? SegmentOrigin.Generated)?.let { MusicalLevel.of(it.config).description }
+fun levelLine(context: RunContext): String? = levelLine(context.segments)
+
+fun levelLine(segments: List<Segment>): String? = segments.first().musicalLevel?.description
 
 /**
  * One line per bar the controller moved the level at, "Harder from bar 13: up to fourths",
  * read off the configurations the bars were generated from, so each points at a bar on the
  * page.
  */
-fun levelChangeLines(segments: List<Segment>): List<String> {
-    val levels = segments.map { (it.origin as? SegmentOrigin.Generated)?.let { origin -> MusicalLevel.of(origin.config) } }
-    return levels.zipWithNext().mapIndexedNotNull { index, (before, after) ->
-        if (before == null || after == null) return@mapIndexedNotNull null
-        val changed = MusicalLevel.MUSICAL_DIMENSIONS.filter { before.rank(it) != after.rank(it) }
-        if (changed.isEmpty()) return@mapIndexedNotNull null
-        val harder = after.rank(changed.first()) > before.rank(changed.first())
-        "${directionWord(harder)} from bar ${index + 2}: " + changed.joinToString(", ") { after.label(it) }
-    }
-}
+fun levelChangeLines(segments: List<Segment>): List<String> =
+    levelChangesWithin(segments).map { (bar, change) -> "${directionWord(change.harder)} from bar $bar: ${change.what}" }
 
 /** "Harder next run: 3 beats ahead", or null when the controller held. */
 fun nextRunLine(decision: Decision): String? {
@@ -127,11 +130,7 @@ fun nextRunLine(decision: Decision): String? {
     return "${directionWord(move.direction == Direction.UP)} next run: $what"
 }
 
-/** "3 beats ahead", "1 beat ahead". */
-fun lookaheadLabel(beats: Double): String = "${beats.beatsLabel()} ${if (beats == 1.0) "beat" else "beats"} ahead"
-
 private fun directionWord(harder: Boolean): String = if (harder) "Harder" else "Easier"
 
-fun Double.beatsLabel(): String = if (this == this.toInt().toDouble()) this.toInt().toString() else this.toString()
-
-private fun percent(fraction: Double): String = "${(fraction * 100).roundToInt()}%"
+/** "91%", rounded. */
+fun percentLabel(fraction: Double): String = "${(fraction * 100).roundToInt()}%"

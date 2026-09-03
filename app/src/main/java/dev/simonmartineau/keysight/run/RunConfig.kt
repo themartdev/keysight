@@ -71,3 +71,9 @@ data class RunConfig(
         val LOOKAHEAD_LADDER_BEATS = listOf(4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5, 0.25)
     }
 }
+
+/** A lookahead in words: "3 beats ahead", "1 beat ahead", "0.75 beats ahead". */
+fun lookaheadLabel(beats: Double): String = "${beats.beatsLabel()} ${if (beats == 1.0) "beat" else "beats"} ahead"
+
+/** A beat count without a trailing ".0": "2", "1.5". */
+fun Double.beatsLabel(): String = if (this == this.toInt().toDouble()) this.toInt().toString() else this.toString()

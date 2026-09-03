@@ -37,7 +37,9 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `RunMachine` reducer that also commits each segment's evaluation at its capture tail
   (`RunState.committed` pairs each performed segment with its result),
   `RunController` (the coroutine that drives it, tops up an open-ended run one segment at a
-  time and reports every ended run), `RunHistory` and `RunRecord`.
+  time, reports every ended run and names the session it records into), `RunHistory` (the
+  write side of history) and `RunRecord` (with the `timeline` it was performed on, so a
+  record re-evaluates on its own).
 - `audio/` `ClickSynth` and `ClickTrack` (pure PCM on a frame line), `Metronome`, and
   `AudioTrackMetronome`, which anchors beat 0 to the audio timestamp.
 - `evaluation/` `PlayedNotes` (MIDI to notes on the run's beat line), `NoteAlignment` (edit
@@ -59,6 +61,14 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `Move`), `DifficultyStore` (the persistence port), `DifficultyTracker` (the state and
   evidence across a session) and `AdaptiveSegmentSource` (the generator at the level the
   tracker decides for every segment still to come).
+- `history/` the read side of history, pure: `SessionRecord`, `StoredRun` (a record with the
+  judgement of each committed segment, `isCurrent` against `EVALUATOR_VERSION`, `reevaluated`
+  from its segments and raw MIDI), `HistoryStore` (the port, with `InMemoryHistoryStore`),
+  `HistoryReader` (every run read through it is at the current version, re-evaluated and
+  stored under it when it was not) and `SessionSummary` with `summarise`: runs, bars, the two
+  accuracies pooled by their counts, the level at the first and last bar, every `SessionMove`
+  as the run summary announced it, and the `WEAKEST_BARS` faulty bars across the session,
+  each naming its run.
 - `settings/` `RunSettings`, `ContentSettings` (key, hands, accompaniment, and the
   `ExerciseConfig` they make over the generator's defaults) and `ThemeSettings` (system, light,
   dark), SharedPreferences-backed.
@@ -70,7 +80,8 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   attempt row into a run with one segment per measure, reading both the `FlashConfig` and the
   `RunConfig` snapshot shapes through the pure `LegacyAttempts.kt`; 3 to 4 adds the seed to
   runs and rebuilds segments with a nullable exercise id and the generator columns; 4 to 5
-  adds the controller's table), `RoomRunHistory`, `RoomDifficultyStore`, and the pure mappers.
+  adds the controller's table), `RoomRunHistory` (both `RunHistory` and `HistoryStore` over
+  the same tables), `RoomDifficultyStore`, and the pure mappers.
 - `notation/` the pure layout engine: `StaffPosition`, `Glyph` (SMuFL codepoints),
   `BravuraMetrics`, `AccidentalState` (when an accidental is written), `ScoreLayoutEngine`
   producing a `SystemLayout` (a row of measures across all staves, justified to a width) and a
@@ -79,10 +90,15 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `BeamElement`s over eighths that share a beat and rests derived from the silences on each
   staff (`restsFilling` is the splitting rule), `Mask` (which score time is hidden), and
   `noteMarks`, the one place evaluation outcomes meet notation.
-- `di/` `AppContainer`. `ui/notation/` the Compose Canvas renderer (`RunPage`, the two systems
-  around the beat; `RunSummaryPage`, every system in a scroll; `drawPage`, `drawSystem`) that
-  draws a `PageLayout` with the bundled Bravura font. `ui/practice/` the one screen, its view
-  model, and `PracticePreviews` with one preview per screen state.
+- `di/` `AppContainer`. `Screen` and `MainActivity` are the navigation: a sealed state,
+  practice to history to a run's page and back, no library. `ui/notation/` the Compose Canvas
+  renderer (`RunPage`, the two systems around the beat; `RunSummaryPage`, every system in a
+  scroll; `drawPage`, `drawSystem`) that draws a `PageLayout` with the bundled Bravura font.
+  `ui/practice/` the practice screen, its view model, `RunSummaryContent` (the summary of one
+  run, shown when a run ends and again from history) and `PracticePreviews` with one preview
+  per screen state. `ui/history/` the history screen (sessions newest first, the practice
+  screen's own expanded on arrival as the session summary, then its runs), the run page, the
+  thin `HistoryViewModel`, `HistoryText` and `HistoryPreviews`.
 - `app/src/main/res/font/bravura.otf` is Bravura 1.482 (SMuFL, OFL); its licence ships in
   `app/src/main/assets/licenses/`. Glyph metrics are the table in `BravuraMetrics`, checked
   against the font file by `BravuraMetricsTest`.
@@ -98,8 +114,8 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   of the contract); a measure `beyondVocabulary` names the one rule it breaks and is held to
   every other.
 
-Not built yet: session summaries and the generator dimensions after accidentals (chords,
-other meters, syncopation); the plan's round ladder covers them in order.
+Not built yet: the generator dimensions after accidentals (chords, other meters,
+syncopation); the plan's round ladder covers them in order.
 
 ## Build and test
 
@@ -131,8 +147,9 @@ from this environment.
 - The Kotlin, Compose-compiler, serialization-plugin and KSP versions are pinned to whatever AGP
   embeds. Never bump one of them alone; they move with AGP or not at all.
 - New logic goes in a JVM unit test unless it genuinely needs a device.
-  `score`, `exercise`, `midi`, `timing`, `run`, `evaluation`, `difficulty`, `notation` and
-  the data mappers have no Android imports; keep it that way so they stay testable on the JVM.
+  `score`, `exercise`, `midi`, `timing`, `run`, `evaluation`, `difficulty`, `history`,
+  `notation` and the data mappers have no Android imports; keep it that way so they stay
+  testable on the JVM.
 - Musical time in the score is integer `Ticks` (960 per quarter note), never a double.
   Doubles are for wall-clock beats in `RunConfig`, `VisibilityPolicy` and `RunTimeline` only.
 - A run's score is one `Score` whose measure k is segment k, measure 0 resting; the run's beat
@@ -233,7 +250,14 @@ from this environment.
 - Raw MIDI is never discarded or overwritten: `midi_events` rows are the three raw bytes and a
   timestamp, and runs snapshot their score and config so history is re-evaluable on its own.
   Evaluations are keyed by `(segmentId, evaluatorVersion)`, a segment id being `runId:index`;
-  bump `EVALUATOR_VERSION` whenever a judgement would change.
+  bump `EVALUATOR_VERSION` whenever a judgement would change. History shows judgements at the
+  current version only: `HistoryReader` re-evaluates a run whose stored judgement is older
+  from its segments and raw MIDI as it is read, every segment of a completed run and only the
+  committed ones of an aborted run, and stores the result as new rows, the old ones kept. A
+  session is the practice screen's lifetime, opened by the first run it records and closed
+  when the screen is left; the session summary is that session, pooled: every number on it
+  is the sum of the counts behind the run rows' score lines, and every remark on it names a
+  run of the list, which opens that run's page with its marks.
 - `RunMachine` is a pure reducer, commits included: its deadlines while performing are the
   capture tails of the segments. `RunController` wakes up only at
   `RunMachine.nextDeadlineNanos` or when that deadline moves, and whether a MIDI event is

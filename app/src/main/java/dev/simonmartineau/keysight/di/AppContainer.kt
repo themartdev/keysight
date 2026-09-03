@@ -8,6 +8,8 @@ import dev.simonmartineau.keysight.data.RoomDifficultyStore
 import dev.simonmartineau.keysight.data.RoomRunHistory
 import dev.simonmartineau.keysight.difficulty.DifficultyStore
 import dev.simonmartineau.keysight.difficulty.DifficultyTracker
+import dev.simonmartineau.keysight.history.HistoryReader
+import dev.simonmartineau.keysight.history.HistoryStore
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
 import dev.simonmartineau.keysight.run.RunController
 import dev.simonmartineau.keysight.run.RunHistory
@@ -41,7 +43,13 @@ class AppContainer(context: Context) {
 
     val database: KeySightDatabase by lazy { KeySightDatabase.build(appContext) }
 
-    val runHistory: RunHistory by lazy { RoomRunHistory(database) }
+    private val roomHistory: RoomRunHistory by lazy { RoomRunHistory(database) }
+
+    /** The write side of history, the run controller's. */
+    val runHistory: RunHistory get() = roomHistory
+
+    /** The read side of the same tables, the history screen's. */
+    val historyStore: HistoryStore get() = roomHistory
 
     val difficultyStore: DifficultyStore by lazy { RoomDifficultyStore(database) }
 
@@ -61,4 +69,7 @@ class AppContainer(context: Context) {
 
     /** One tracker per practice screen: the difficulty controller's state and evidence, saved through [appScope]. */
     fun difficultyTracker(): DifficultyTracker = DifficultyTracker(difficultyStore, appScope)
+
+    /** History at the current evaluator version, re-evaluating what is older as it is read. */
+    fun historyReader(): HistoryReader = HistoryReader(historyStore)
 }
