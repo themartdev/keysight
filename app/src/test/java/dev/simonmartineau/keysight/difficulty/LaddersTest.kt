@@ -6,6 +6,9 @@ import dev.simonmartineau.keysight.exercise.ExerciseGenerator
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.exercise.NoteValue
 import dev.simonmartineau.keysight.exercise.violations
+import dev.simonmartineau.keysight.notation.Glyph
+import dev.simonmartineau.keysight.notation.GlyphElement
+import dev.simonmartineau.keysight.notation.Role
 import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.runScore
@@ -23,7 +26,9 @@ class LaddersTest {
     /** Every level the ladders can reach: every consistent combination of their rungs. */
     private val levels: List<MusicalLevel> = Ladders.INTERVAL.rungs.flatMap { interval ->
         Ladders.RANGE.rungs.flatMap { ranges ->
-            Ladders.RHYTHM.rungs.map { values -> MusicalLevel(interval, ranges.right, ranges.left, values) }
+            Ladders.RHYTHM.rungs.flatMap { values ->
+                Ladders.RESTS.rungs.map { rests -> MusicalLevel(interval, ranges.right, ranges.left, values, rests) }
+            }
         }
     }.filter { it.isConsistent }
 
@@ -51,6 +56,11 @@ class LaddersTest {
         )
         assertEquals(setOf(NoteValue.WHOLE, NoteValue.HALF, NoteValue.QUARTER, NoteValue.EIGHTH), Ladders.RHYTHM.step(MusicalLevel.DEFAULT.noteValues, Direction.UP))
         assertNull(Ladders.RHYTHM.step(Ladders.RHYTHM.hardest, Direction.UP))
+        assertEquals(listOf(false, true), Ladders.RESTS.rungs, "rests are off, then on")
+        assertTrue(!MusicalLevel.DEFAULT.rests, "the player starts without rests")
+        assertEquals(true, Ladders.RESTS.step(false, Direction.UP))
+        assertNull(Ladders.RESTS.step(true, Direction.UP))
+        assertEquals(listOf(Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS), MusicalLevel.MUSICAL_DIMENSIONS)
     }
 
     @Test
@@ -92,7 +102,7 @@ class LaddersTest {
 
     @Test
     fun `every level on the ladders is a configuration the generator satisfies for every hands`() {
-        assertEquals(6 * 5 * 3 - 3 * 3, levels.size, "sixths and octaves need more than five notes, octaves more than six")
+        assertEquals((6 * 5 * 3 - 3 * 3) * 2, levels.size, "sixths and octaves need more than five notes, octaves more than six; each with and without rests")
         levels.forEach { level ->
             bases.forEach { base ->
                 val config = level.applyTo(base)
@@ -106,12 +116,14 @@ class LaddersTest {
 
     @Test
     fun `the hardest rungs lay out inside the envelope in C and in every key on both staves`() {
-        val hardest = MusicalLevel(Ladders.INTERVAL.hardest, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest)
+        val hardest = MusicalLevel(Ladders.INTERVAL.hardest, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest, Ladders.RESTS.hardest)
         KeySignature.ALL.forEach { key ->
             val config = hardest.applyTo(ExerciseConfig(key, Hands.BOTH, Accompaniment.HELD_NOTE))
             val run = runScore((0L until 12L).map { ExerciseGenerator.generate(config, it) })
             val page = ScoreLayoutEngine.layoutPage(run, targetWidth = 60.0)
             assertEquals(run.notes.map { it.id }.toSet(), page.systems.flatMap { it.layout.anchors.keys }.toSet(), "$key")
+            val rests = page.systems.flatMap { it.layout.elements }.filterIsInstance<GlyphElement>().filter { it.role == Role.REST }
+            assertTrue(rests.any { it.glyph != Glyph.REST_WHOLE }, "$key: twelve bars with rests on draw a rest inside a bar")
             if (key == KeySignature.C_MAJOR) {
                 page.systems.forEach { placed ->
                     assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, placed.layout.top)
@@ -123,11 +135,12 @@ class LaddersTest {
 
     @Test
     fun `a level is described in words, one per dimension`() {
-        assertEquals("Up to thirds, five notes, quarter notes.", MusicalLevel.DEFAULT.description)
-        val hardest = MusicalLevel(7, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest)
-        assertEquals("Up to octaves, a twelfth, eighth notes.", hardest.description)
+        assertEquals("Up to thirds, five notes, quarter notes, no rests.", MusicalLevel.DEFAULT.description)
+        val hardest = MusicalLevel(7, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest, rests = true)
+        assertEquals("Up to octaves, a twelfth, eighth notes, with rests.", hardest.description)
         val easiest = MusicalLevel(1, Ladders.RANGE.easiest.right, Ladders.RANGE.easiest.left, Ladders.RHYTHM.easiest)
-        assertEquals("Steps only, five notes, half notes.", easiest.description)
+        assertEquals("Steps only, five notes, half notes, no rests.", easiest.description)
+        assertEquals("with rests", MusicalLevel.restsLabel(true))
         assertEquals("an octave", MusicalLevel.rangeLabel(8))
         assertEquals("up to fifths", MusicalLevel.intervalLabel(4))
         assertEquals("whole notes", MusicalLevel.rhythmLabel(NoteValue.WHOLE))
@@ -136,7 +149,7 @@ class LaddersTest {
 
     @Test
     fun `a level applied to a base keeps the player's choices and reads back as itself`() {
-        val level = MusicalLevel(3, Ladders.RANGE.rungs[2].right, Ladders.RANGE.rungs[2].left, Ladders.RHYTHM.easiest)
+        val level = MusicalLevel(3, Ladders.RANGE.rungs[2].right, Ladders.RANGE.rungs[2].left, Ladders.RHYTHM.easiest, rests = true)
         val base = ExerciseConfig(KeySignature(-2), Hands.BOTH, Accompaniment.HELD_NOTE)
 
         val config = level.applyTo(base)
@@ -147,5 +160,6 @@ class LaddersTest {
         assertEquals(level, MusicalLevel.of(config))
         assertEquals(8, level.width)
         assertEquals(NoteValue.HALF, level.shortestValue)
+        assertTrue(config.rests)
     }
 }

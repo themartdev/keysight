@@ -2,7 +2,8 @@ package dev.simonmartineau.keysight.difficulty
 
 /**
  * One axis of difficulty the controller may move, in the order of section 8 of the plan,
- * easiest to move first: the exposure, then the music. The controller walks this order; a
+ * easiest to move first: the exposure, then the music, rests last since a rest is read
+ * against the note values already learnt. The controller walks this order; a
  * new dimension is a new entry with its rung ladder in [Ladders] and its step in
  * [DifficultyController.step], nothing else.
  *
@@ -24,6 +25,9 @@ enum class Dimension(
 
     /** The note values the generator writes. */
     RHYTHM(movesWithinRun = true),
+
+    /** Whether the generator leaves rests between the notes of a bar. */
+    RESTS(movesWithinRun = true),
 }
 
 /** Up is harder, down is easier. */

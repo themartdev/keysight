@@ -18,6 +18,13 @@ enum class NoteValue(val ticks: Ticks) {
     EIGHTH(Ticks.EIGHTH),
 }
 
+/** One event of a rhythm: a note of [value], or with [rest] the same span of silence. */
+data class RhythmEvent(val value: NoteValue, val rest: Boolean = false) {
+    val ticks: Ticks get() = value.ticks
+
+    override fun toString(): String = if (rest) "${value.name} rest" else value.name
+}
+
 /**
  * The notes one hand may be asked to read, as written in C major: every natural letter from
  * [lowest] to [highest] inclusive. Transposition moves the range with the passage.
@@ -54,7 +61,8 @@ enum class Accompaniment(val label: String) {
  * C major because the generator writes in C and transposes; a range therefore names a hand
  * position, not a register, and moves with the key. [maxInterval] is the largest distance
  * between consecutive melody notes, in letters: 1 is stepwise, 2 allows thirds, 4 fifths;
- * a repeated note is always allowed.
+ * a repeated note is always allowed. With [rests] the rhythm may hold silence between its
+ * notes, a rest of one of the note values at a time.
  *
  * Only [keySignature], [hands] and [accompaniment] are exposed in the settings; the rest are
  * the difficulty controller's, laid over them by its
@@ -68,6 +76,7 @@ data class ExerciseConfig(
     val rightHandRange: PitchRange = DEFAULT_RIGHT_HAND_RANGE,
     val leftHandRange: PitchRange = DEFAULT_LEFT_HAND_RANGE,
     val noteValues: Set<NoteValue> = DEFAULT_NOTE_VALUES,
+    val rests: Boolean = false,
     val maxInterval: Int = 2,
     val timeSignature: TimeSignature = TimeSignature.FOUR_FOUR,
 ) {
@@ -101,10 +110,11 @@ data class ExerciseConfig(
      * to quarters, whole; half half; half quarter quarter; quarter half quarter; quarter
      * quarter half; four quarters. Readable means [mayStartAt]: only a note shorter than the
      * beat starts off the beat, so eighths come in pairs that fill a beat and nothing is
-     * syncopated.
+     * syncopated. With [rests] the same enumeration also tries a rest at every value, after
+     * the note of it, where [mayRestAt] allows; without them it is exactly the old list.
      */
-    val rhythms: List<List<NoteValue>>
-        get() = rhythmsFilling(noteValues, timeSignature)
+    val rhythms: List<List<RhythmEvent>>
+        get() = rhythmsFilling(noteValues, timeSignature, rests)
 
     /**
      * Whether a note of [duration] may start at [onset]: on a beat, or anywhere when it is
@@ -112,6 +122,15 @@ data class ExerciseConfig(
      * for later; until then every note at least a beat long lands on the pulse.
      */
     fun mayStartAt(duration: Ticks, onset: Ticks): Boolean = mayStartAt(duration, onset, timeSignature)
+
+    /**
+     * Whether a rest of [duration] may start at [onset]: never first in the measure, never
+     * right after another rest, and only at a multiple of its own length, so an eighth rest
+     * sits on either half of a beat, a quarter rest on a beat, and a half rest on beat 1 or
+     * 3 of 4/4, never across the middle of the measure. That is also how the layout splits
+     * silence into rests, so every rest the generator writes is drawn as one glyph.
+     */
+    fun mayRestAt(duration: Ticks, onset: Ticks, afterRest: Boolean): Boolean = mayRestAt(duration, onset, afterRest, timeSignature)
 
     companion object {
         /** Wider than an octave is never a sight-reading interval for this trainer. */
@@ -130,20 +149,25 @@ data class ExerciseConfig(
 
 /**
  * Every way to fill a measure of [timeSignature] with [values] in which only a note shorter
- * than the beat starts off the beat, longest value first at every position; empty when none
- * does.
+ * than the beat starts off the beat, longest value first at every position, and with [rests]
+ * also a rest of each value where [ExerciseConfig.mayRestAt] allows, tried after the note of
+ * it; empty when nothing fills the measure.
  */
-fun rhythmsFilling(values: Set<NoteValue>, timeSignature: TimeSignature): List<List<NoteValue>> {
+fun rhythmsFilling(values: Set<NoteValue>, timeSignature: TimeSignature, rests: Boolean): List<List<RhythmEvent>> {
     val measure = timeSignature.ticksPerMeasure
     val ordered = values.sortedByDescending { it.ticks }
-    val result = ArrayList<List<NoteValue>>()
-    fun fill(prefix: List<NoteValue>, filled: Ticks) {
+    val result = ArrayList<List<RhythmEvent>>()
+    fun fill(prefix: List<RhythmEvent>, filled: Ticks) {
         if (filled == measure) {
             result += prefix
             return
         }
         for (value in ordered) {
-            if (filled + value.ticks <= measure && mayStartAt(value.ticks, filled, timeSignature)) fill(prefix + value, filled + value.ticks)
+            if (filled + value.ticks > measure) continue
+            if (mayStartAt(value.ticks, filled, timeSignature)) fill(prefix + RhythmEvent(value), filled + value.ticks)
+            if (rests && mayRestAt(value.ticks, filled, prefix.lastOrNull()?.rest ?: true, timeSignature)) {
+                fill(prefix + RhythmEvent(value, rest = true), filled + value.ticks)
+            }
         }
     }
     fill(emptyList(), Ticks.ZERO)
@@ -153,3 +177,8 @@ fun rhythmsFilling(values: Set<NoteValue>, timeSignature: TimeSignature): List<L
 /** The vocabulary's readability rule, [ExerciseConfig.mayStartAt]. */
 private fun mayStartAt(duration: Ticks, onset: Ticks, timeSignature: TimeSignature): Boolean =
     duration < timeSignature.ticksPerBeat || onset.value % timeSignature.ticksPerBeat.value == 0
+
+/** The vocabulary's rule for rests, [ExerciseConfig.mayRestAt]; [afterRest] is true at the start of the measure too. */
+private fun mayRestAt(duration: Ticks, onset: Ticks, afterRest: Boolean, timeSignature: TimeSignature): Boolean =
+    !afterRest && onset > Ticks.ZERO && duration < timeSignature.ticksPerMeasure &&
+        mayStartAt(duration, onset, timeSignature) && onset.value % duration.value == 0

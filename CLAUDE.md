@@ -14,11 +14,12 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `ScoreNote` (with its staff index), `Score` (a list of staves), and `transposed`, diatonic
   transposition between major keys.
 - `exercise/` the generator: `Hands`, `ExerciseConfig` (key, hands, accompaniment, a range per
-  hand, note values, the largest interval, meter; the musical side of difficulty, one field per
-  dimension the controller may move), `SeededRandom` (SplitMix64, so a seed means the same
-  thing in every Kotlin version) with `segmentSeed`, and `ExerciseGenerator` with
-  `GENERATOR_VERSION`: one measure in C from a config and a seed, a constrained random walk
-  with a contour over a rhythm from the config's vocabulary, then `transposed` into the key.
+  hand, note values, rests, the largest interval, meter; the musical side of difficulty, one
+  field per dimension the controller may move), `RhythmEvent` (a note or a rest of a value),
+  `SeededRandom` (SplitMix64, so a seed means the same thing in every Kotlin version) with
+  `segmentSeed`, and `ExerciseGenerator` with `GENERATOR_VERSION`: one measure in C from a
+  config and a seed, a constrained random walk with a contour over a rhythm from the config's
+  vocabulary, then `transposed` into the key.
 - `midi/` `MidiEvent` (raw bytes plus timestamp), `MidiMessage` (decoded), `MidiParser`.
 - `timing/` `MonotonicClock` and `RunTimeline`, every scheduled instant of one run: segment k
   starts at beat `k * beatsPerMeasure`, segment 0 is the count-in, capture ends a tail after the
@@ -45,7 +46,8 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   segment from a window of three (the previous segment's missing notes, the segment, the next
   one) once its capture tail has passed, and `evaluate` replays every commit from stored MIDI.
 - `difficulty/` the controller of the plan's section 8, pure: `Dimension` (the fixed walk
-  order, lookahead then interval, range, rhythm, each saying whether it moves within a run),
+  order, lookahead then interval, range, rhythm, rests, each saying whether it moves within a
+  run),
   `Ladders` (every dimension's rungs, easiest first, in one place, over the generic `Ladder`),
   `MusicalLevel` (the generator fields the controller owns, as values), `DifficultyState`
   (the level and the dimension moved last), `Evidence` (`SegmentEvidence` from one committed
@@ -70,8 +72,9 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `BravuraMetrics`, `AccidentalState` (when an accidental is written), `ScoreLayoutEngine`
   producing a `SystemLayout` (a row of measures across all staves, justified to a width) and a
   `PageLayout` (systems stacked, with the system at a time, the two-system `window` that is the
-  page turn, and the `Cursor` at a time) in staff-space units, with flags on lone eighths and
-  `BeamElement`s over eighths that share a beat, `Mask` (which score time is hidden), and
+  page turn, and the `Cursor` at a time) in staff-space units, with flags on lone eighths,
+  `BeamElement`s over eighths that share a beat and rests derived from the silences on each
+  staff (`restsFilling` is the splitting rule), `Mask` (which score time is hidden), and
   `noteMarks`, the one place evaluation outcomes meet notation.
 - `di/` `AppContainer`. `ui/notation/` the Compose Canvas renderer (`RunPage`, the two systems
   around the beat; `RunSummaryPage`, every system in a scroll; `drawPage`, `drawSystem`) that
@@ -81,13 +84,15 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `app/src/main/assets/licenses/`. Glyph metrics are the table in `BravuraMetrics`, checked
   against the font file by `BravuraMetricsTest`.
 - `app/src/test/resources/exercises/` the eighteen hand-written measures of the rounds before
-  the generator and the four eighth-note measures of round 9 (beamed pairs on both clefs in C,
+  the generator, the four eighth-note measures of round 9 (beamed pairs on both clefs in C,
   B flat and D, and one syncopated measure of lone flagged eighths the generator never
-  writes), test fixtures only: `BundledMeasuresTest` holds them to the layout envelope and to
-  the generator's constraints (`violations`, the test-side statement of the contract).
+  writes) and the four rest measures of round 10 (quarter, half and eighth rests on both
+  clefs in C, G and F), test fixtures only: `BundledMeasuresTest` holds them to the layout
+  envelope and to the generator's constraints (`violations`, the test-side statement of the
+  contract).
 
-Not built yet: session summaries and the generator dimensions after eighths (rests,
-accidentals, chords, other meters); the plan's round ladder covers them in order.
+Not built yet: session summaries and the generator dimensions after rests (accidentals,
+chords, other meters, syncopation); the plan's round ladder covers them in order.
 
 ## Build and test
 
@@ -145,18 +150,23 @@ from this environment.
   allowed values in which only a note shorter than the beat starts off the beat
   (`ExerciseConfig.mayStartAt`), so eighths come in pairs that fill a beat and nothing is
   syncopated; `ExerciseConfig.DEFAULT_NOTE_VALUES` stays wholes to quarters, so a stored
-  configuration without eighths keeps its rhythms. A new generator dimension gets its
-  constraint in `violations`, its generator test and, if a judgement changes, its evaluator
-  test before the controller may move it; the layout draws no rests within a measure, no dots
-  and one flag or beam at most, so rests, dots and sixteenths wait for the layout.
+  configuration without eighths keeps its rhythms. A rest is the absence of a note over a
+  span, not a score type: with `ExerciseConfig.rests` the vocabulary also holds a rest of any
+  note value where `mayRestAt` allows (never first in the measure, never after another rest,
+  and at a multiple of its own length, so a half rest starts on beat 1 or 3 of 4/4), and
+  without rests the vocabulary is the old list in the old order, so `GENERATOR_VERSION` and
+  every stored seed keep their meaning. A new generator dimension gets its constraint in
+  `violations`, its generator test and, if a judgement changes, its evaluator test before the
+  controller may move it; the layout draws no dots and one flag or beam at most, so dots and
+  sixteenths wait for the layout.
 - Difficulty is moved by the controller, never silently. It decides from the trailing window
   of `DifficultyController.WINDOW_SEGMENTS` committed segments played at exactly the current
   state (run exposure and exercise configuration), whose success is the smaller of the pooled
   pitch and rhythm accuracies the score line shows: above 90% one dimension steps up, below
   65% one steps down, else it holds, and a short window holds. One dimension per decision,
   and a move empties the window, so no two moves share evidence. The walk takes turns in
-  `Dimension` order: up goes to the next dimension after the last moved that can move, down
-  starts at the last moved and walks back. The lookahead moves only between runs and only in
+  `Dimension` order, lookahead, interval, range, rhythm, rests: up goes to the next dimension
+  after the last moved that can move, down starts at the last moved and walks back. The lookahead moves only between runs and only in
   Flash, and is written into the run settings; the musical dimensions move within an
   open-ended run for the segments still to be generated (`SegmentSource.SEGMENTS_AHEAD` bars
   ahead of the cursor, never a segment already shown) and between runs otherwise. Key, hands,
@@ -182,7 +192,15 @@ from this environment.
   beam never crosses a beat; a lone eighth hangs a flag from its stem tip by the flag's SMuFL
   anchor. A beamed group's stems follow the head farthest from the middle line, the beam
   follows its first and last heads (half their distance, at most one space) and sits where
-  the stem nearest it has its own length; the beam carries no note id, the stems do.
+  the stem nearest it has its own length; the beam carries no note id, the stems do. Rests
+  are not in the score: the layout derives them per staff from the silences between what
+  sounds in a measure and splits each silence into the largest rests that start at a multiple
+  of their own length and stay inside their beat (a half's worth on beat 2 is two quarter
+  rests); a rest takes a column at its onset with the room a note of its value gets, the whole
+  rest hangs from the fourth line and the others sit by their origin on the middle line. A
+  rest inside a bar is content: it carries its onset tick and the mask hides it with the bar,
+  since a rest left on the page would tell which beat is silent; the whole rest of a staff
+  silent through a measure, the count-in included, carries no tick and stays on the page.
 - Raw MIDI is never discarded or overwritten: `midi_events` rows are the three raw bytes and a
   timestamp, and runs snapshot their score and config so history is re-evaluable on its own.
   Evaluations are keyed by `(segmentId, evaluatorVersion)`, a segment id being `runId:index`;

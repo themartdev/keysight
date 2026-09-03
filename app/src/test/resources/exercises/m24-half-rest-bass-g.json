@@ -1,0 +1,39 @@
+{
+  "id": "m24-half-rest-bass-g",
+  "score": {
+    "timeSignature": {
+      "beatsPerMeasure": 4,
+      "beatUnit": 4
+    },
+    "keySignature": 1,
+    "staves": [
+      {
+        "clef": "BASS"
+      }
+    ],
+    "measureCount": 1,
+    "notes": [
+      {
+        "id": "n1",
+        "spelling": {
+          "step": "G",
+          "octave": 2
+        },
+        "onset": 0,
+        "duration": 960,
+        "hand": "LEFT"
+      },
+      {
+        "id": "n2",
+        "spelling": {
+          "step": "B",
+          "octave": 2
+        },
+        "onset": 960,
+        "duration": 960,
+        "hand": "LEFT"
+      }
+    ]
+  },
+  "musicalDifficulty": 5
+}

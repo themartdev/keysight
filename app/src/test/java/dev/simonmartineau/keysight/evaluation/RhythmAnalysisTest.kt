@@ -78,6 +78,16 @@ class RhythmAnalysisTest {
     }
 
     @Test
+    fun `a rest between two notes is notated silence, not a pause`() {
+        val result = analyse(correct(0, 0.0), correct(2, 2.0), correct(3, 3.0))
+
+        assertEquals(emptyList(), result.pauses)
+        assertEquals(Continuity.GOOD, result.continuity)
+        assertEquals(1.0, result.tempoRatio!!, 1e-9)
+        assertEquals(listOf(Pause("n3", 0.6)), analyse(correct(0, 0.0), correct(2, 2.6), correct(3, 3.6)).pauses.map { it.copy(extraBeats = Math.round(it.extraBeats * 1000) / 1000.0) })
+    }
+
+    @Test
     fun `continuity is good when every note holds the pulse`() {
         assertEquals(Continuity.GOOD, analyse(correct(0, 0.1), correct(1, 0.9), correct(2, 2.3), correct(3, 3.0)).continuity)
     }

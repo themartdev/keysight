@@ -379,7 +379,7 @@ class ScoreLayoutEngineTest {
         val rest = layout.glyphs(Role.REST).single()
         assertEquals(Glyph.REST_WHOLE, rest.glyph)
         assertEquals(3.0, rest.y)
-        assertEquals(Ticks.ZERO, rest.ticks)
+        assertNull(rest.ticks, "a whole-measure rest is not content and is never masked")
         val measureStart = layout.timeAxis.first().x
         val metrics = BravuraMetrics.of(Glyph.REST_WHOLE)
         assertEquals((measureStart + layout.barline().x1) / 2, rest.x + metrics.left + metrics.width / 2, 1e-9)
@@ -471,7 +471,11 @@ class ScoreLayoutEngineTest {
         assertEquals(bassStem.y1 + ScoreLayoutEngine.STEM_LENGTH, bassStem.y2, 1e-9)
         assertEquals(-ScoreLayoutEngine.STAFF_DISTANCE + ScoreLayoutEngine.ENVELOPE_BOTTOM, layout.bottom)
         assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, layout.top)
-        assertEquals(emptyList(), layout.glyphs(Role.REST))
+        // Each staff is silent for the second half of the bar: a half rest on each, in one column.
+        val rests = layout.glyphs(Role.REST)
+        assertEquals(listOf(Glyph.REST_HALF, Glyph.REST_HALF), rests.map { it.glyph })
+        assertEquals(listOf(StaffPosition.MIDDLE_LINE.y, StaffPosition.MIDDLE_LINE.y - ScoreLayoutEngine.STAFF_DISTANCE), rests.map { it.y })
+        assertEquals(rests[0].x, rests[1].x)
     }
 
     @Test
@@ -480,7 +484,113 @@ class ScoreLayoutEngineTest {
         val rest = layout.glyphs(Role.REST).single()
 
         assertEquals(3.0 - ScoreLayoutEngine.STAFF_DISTANCE, rest.y)
-        assertEquals(Ticks.ZERO, rest.ticks)
+        assertNull(rest.ticks)
+    }
+
+    private fun SystemLayout.rests() = glyphs(Role.REST)
+
+    @Test
+    fun `a beat's silence is a quarter rest on the middle line, in a column of its own`() {
+        val layout = layout(
+            Fixtures.oneMeasure(
+                note("a", Fixtures.C4, Ticks.ZERO),
+                note("b", Fixtures.E4, Ticks.HALF),
+                note("c", Fixtures.D4, Ticks.quarters(3)),
+            ),
+        )
+        val rest = layout.rests().single()
+        val metrics = BravuraMetrics.of(Glyph.REST_QUARTER)
+
+        assertEquals(Glyph.REST_QUARTER, rest.glyph)
+        assertEquals(StaffPosition.MIDDLE_LINE.y, rest.y)
+        assertNull(rest.noteId)
+        assertEquals(Ticks.QUARTER, rest.ticks, "a rest inside a bar is content and carries its onset")
+        assertTrue(Mask.ALL.hides(rest))
+        assertTrue(!Mask(listOf(TickRange(Ticks.HALF, Ticks.WHOLE))).hides(rest))
+        val restLeft = rest.x + metrics.left
+        assertEquals(layout.head("a").x + Spacing.advanceFor(Ticks.QUARTER, blackHead.width), restLeft, 1e-9, "the rest sits where a head would")
+        assertEquals(restLeft + Spacing.advanceFor(Ticks.QUARTER, metrics.width), layout.head("b").x, 1e-9, "and takes the room a quarter takes")
+        assertEquals(listOf(Ticks.ZERO, Ticks.QUARTER, Ticks.HALF, Ticks.quarters(3), Ticks.WHOLE), layout.timeAxis.map { it.ticks })
+        assertEquals(restLeft, layout.xAtTicks(Ticks.QUARTER))
+        assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, layout.top)
+        assertEquals(ScoreLayoutEngine.ENVELOPE_BOTTOM, layout.bottom)
+    }
+
+    @Test
+    fun `a half rest sits on the middle line on beat 1 or 3, and beat 2's silence is two quarter rests`() {
+        val onThree = layout(Fixtures.oneMeasure(note("a", Fixtures.C4, Ticks.ZERO), note("b", Fixtures.D4, Ticks.QUARTER)))
+        val half = onThree.rests().single()
+        assertEquals(Glyph.REST_HALF, half.glyph)
+        assertEquals(StaffPosition.MIDDLE_LINE.y, half.y)
+        assertTrue(half.y + BravuraMetrics.of(Glyph.REST_HALF).bottom >= StaffPosition.MIDDLE_LINE.y - 0.01, "it sits on the line")
+        assertEquals(onThree.head("b").x + Spacing.advanceFor(Ticks.QUARTER, blackHead.width), half.x + BravuraMetrics.of(Glyph.REST_HALF).left, 1e-9)
+
+        val onOne = layout(Fixtures.oneMeasure(note("a", Fixtures.C4, Ticks.HALF, Ticks.HALF)))
+        val opening = onOne.rests().single()
+        assertEquals(Glyph.REST_HALF, opening.glyph)
+        assertEquals(onOne.timeAxis.first().x, opening.x + BravuraMetrics.of(Glyph.REST_HALF).left, 1e-9)
+        assertEquals(Ticks.ZERO, onOne.timeAxis.first().ticks)
+
+        val onTwo = layout(Fixtures.oneMeasure(note("a", Fixtures.C4, Ticks.ZERO), note("b", Fixtures.D4, Ticks.quarters(3))))
+        val quarters = onTwo.rests()
+        assertEquals(listOf(Glyph.REST_QUARTER, Glyph.REST_QUARTER), quarters.map { it.glyph }, "a half rest never crosses the middle of the measure")
+        assertTrue(quarters[0].x < quarters[1].x)
+        assertEquals(listOf(Ticks.QUARTER, Ticks.HALF), quarters.map { it.ticks })
+        assertEquals(listOf(Ticks.ZERO, Ticks.QUARTER, Ticks.HALF, Ticks.quarters(3), Ticks.WHOLE), onTwo.timeAxis.map { it.ticks })
+    }
+
+    @Test
+    fun `an eighth rest stays inside its beat and the eighths beside it keep their flags`() {
+        val layout = layout(
+            Fixtures.oneMeasure(
+                note("a", Fixtures.C4, Ticks.ZERO, Ticks.EIGHTH),
+                note("b", Fixtures.D4, Ticks.QUARTER + Ticks.EIGHTH, Ticks.EIGHTH),
+                note("c", Fixtures.E4, Ticks.HALF, Ticks.HALF),
+            ),
+        )
+        val rests = layout.rests()
+
+        assertEquals(listOf(Glyph.REST_8TH, Glyph.REST_8TH), rests.map { it.glyph }, "the silence from the off-beat to the next off-beat is two eighth rests")
+        rests.forEach { assertEquals(StaffPosition.MIDDLE_LINE.y, it.y) }
+        assertEquals(listOf("a", "b"), layout.glyphs(Role.FLAG).map { it.noteId })
+        assertEquals(emptyList(), layout.beams())
+        assertEquals(listOf(0, 480, 960, 1440, 1920, 3840), layout.timeAxis.map { it.ticks.value })
+        assertEquals(layout.head("a").x + Spacing.advanceFor(Ticks.EIGHTH, blackHead.width), rests[0].x + BravuraMetrics.of(Glyph.REST_8TH).left, 1e-9)
+    }
+
+    @Test
+    fun `the splitting rule fills a silence with the largest aligned rests`() {
+        val fourFour = TimeSignature.FOUR_FOUR
+        fun split(from: Int, to: Int, timeSignature: TimeSignature = fourFour) =
+            ScoreLayoutEngine.restsFilling(Ticks(from), Ticks(to), timeSignature).map { (onset, duration) -> onset.value to duration.value }
+
+        assertEquals(listOf(0 to 1920), split(0, 1920))
+        assertEquals(listOf(1920 to 1920), split(1920, 3840))
+        assertEquals(listOf(960 to 960, 1920 to 960), split(960, 2880), "a half's worth on beat 2 is two quarter rests")
+        assertEquals(listOf(960 to 960, 1920 to 1920), split(960, 3840))
+        assertEquals(listOf(480 to 480, 960 to 480), split(480, 1440), "an eighth rest never crosses a beat")
+        assertEquals(listOf(480 to 480, 960 to 960, 1920 to 480), split(480, 2400))
+        assertEquals(listOf(0 to 3840), split(0, 3840))
+        assertEquals(listOf(0 to 1920), split(0, 1920, TimeSignature.THREE_FOUR))
+        assertEquals(listOf(960 to 960, 1920 to 960), split(960, 2880, TimeSignature.THREE_FOUR), "in 3/4 a half rest only opens the measure")
+        assertEquals(listOf(240 to 480, 720 to 480), split(240, 960), "nothing aligns with a sixteenth's offset: the largest that fits, then an eighth")
+    }
+
+    @Test
+    fun `a rest on one staff of a grand staff shares its column with the other staff's note`() {
+        val layout = layout(
+            grandStaff(
+                note("t1", Fixtures.G4, Ticks.ZERO, Ticks.HALF),
+                note("t2", Fixtures.G4, Ticks.HALF, Ticks.HALF),
+                note("b1", SpelledPitch(Step.C, octave = 3), Ticks.ZERO, Ticks.HALF, staff = 1),
+            ),
+        )
+        val rest = layout.rests().single()
+
+        assertEquals(Glyph.REST_HALF, rest.glyph)
+        assertEquals(StaffPosition.MIDDLE_LINE.y - ScoreLayoutEngine.STAFF_DISTANCE, rest.y, 1e-9)
+        assertEquals(layout.head("t2").x, rest.x + BravuraMetrics.of(Glyph.REST_HALF).left, 1e-9)
+        assertEquals(3, layout.timeAxis.size)
     }
 
     @Test

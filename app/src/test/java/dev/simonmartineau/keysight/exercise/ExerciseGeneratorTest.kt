@@ -1,5 +1,7 @@
 package dev.simonmartineau.keysight.exercise
 
+import dev.simonmartineau.keysight.notation.GlyphElement
+import dev.simonmartineau.keysight.notation.Role
 import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
 import dev.simonmartineau.keysight.run.runScore
 import dev.simonmartineau.keysight.score.Clef
@@ -37,7 +39,27 @@ class ExerciseGeneratorTest {
         ExerciseConfig.DEFAULT.copy(noteValues = NoteValue.entries.toSet(), timeSignature = TimeSignature.THREE_FOUR),
         ExerciseConfig.DEFAULT.copy(timeSignature = TimeSignature.THREE_FOUR),
         ExerciseConfig.DEFAULT.copy(rightHandRange = PitchRange(SpelledPitch(Step.E, octave = 4), SpelledPitch(Step.E, octave = 4))),
+        ExerciseConfig.DEFAULT.copy(rests = true),
+        ExerciseConfig.DEFAULT.copy(rests = true, noteValues = NoteValue.entries.toSet(), hands = Hands.BOTH, accompaniment = Accompaniment.HELD_NOTE),
+        ExerciseConfig.DEFAULT.copy(rests = true, timeSignature = TimeSignature.THREE_FOUR),
+        ExerciseConfig.DEFAULT.copy(rests = true, noteValues = setOf(NoteValue.QUARTER)),
     )
+
+    /** The rhythm a measure in C was written to: its notes' values, and the silences between them as rests. */
+    private fun rhythmOf(score: Score): List<RhythmEvent> {
+        val events = ArrayList<RhythmEvent>()
+        var at = Ticks.ZERO
+        fun silence(until: Ticks) {
+            if (until > at) events += RhythmEvent(NoteValue.entries.single { it.ticks == until - at }, rest = true)
+        }
+        score.notes.filter { it.id != ExerciseGenerator.HELD_NOTE_ID }.sortedBy { it.onset }.forEach { note ->
+            silence(note.onset)
+            events += RhythmEvent(NoteValue.entries.single { it.ticks == note.duration })
+            at = note.end
+        }
+        silence(score.timeSignature.ticksPerMeasure)
+        return events
+    }
 
     private fun assertInstance(config: ExerciseConfig, seed: Long, score: Score) {
         val problems = config.violations(score)
@@ -58,7 +80,7 @@ class ExerciseGeneratorTest {
                 assertEquals(ExerciseGenerator.generate(config, seed), ExerciseGenerator.generate(config, seed))
             }
             val distinct = seeds.map { ExerciseGenerator.generate(config, it) }.toSet()
-            val roomy = config.maxInterval > 0 && config.rightHandRange.indices.count() > 1 && config.rhythms.size >= 6
+            val roomy = config.maxInterval > 0 && config.rightHandRange.indices.count() > 1 && config.rhythms.size >= 6 && config.timeSignature.beatsPerMeasure >= 4
             assertTrue(distinct.size > if (roomy) seeds.size / 2 else 1, "$config: ${distinct.size} distinct measures from ${seeds.size} seeds")
         }
         assertNotEquals(ExerciseGenerator.generate(ExerciseConfig.DEFAULT, 1L), ExerciseGenerator.generate(ExerciseConfig.DEFAULT, 2L))
@@ -93,7 +115,7 @@ class ExerciseGeneratorTest {
         val config = ExerciseConfig.DEFAULT.copy(noteValues = NoteValue.entries.toSet())
         val scores = (0L until 1000L).map { ExerciseGenerator.generateInC(config, it) }
 
-        val rhythms = scores.map { score -> score.notes.map { note -> NoteValue.entries.single { it.ticks == note.duration } } }.toSet()
+        val rhythms = scores.map(::rhythmOf).toSet()
         assertEquals(config.rhythms.toSet(), rhythms)
         assertEquals(30, rhythms.size)
         scores.forEach { score ->
@@ -106,6 +128,26 @@ class ExerciseGeneratorTest {
             }
         }
         assertTrue(scores.any { score -> score.notes.all { it.duration == Ticks.EIGHTH } }, "eight eighths come up")
+    }
+
+    /** With rests every rhythm of the vocabulary comes up, and every rest a measure holds is drawn as exactly one rest. */
+    @Test
+    fun `with rests the silences are the vocabulary's and each is one rest on the page`() {
+        val config = ExerciseConfig.DEFAULT.copy(noteValues = NoteValue.entries.toSet(), rests = true)
+        val scores = (0L until 2000L).map { ExerciseGenerator.generateInC(config, it) }
+
+        val rhythms = scores.map(::rhythmOf).toSet()
+        assertEquals(config.rhythms.toSet(), rhythms)
+        assertTrue(rhythms.any { it.last().rest }, "a measure may end with a rest")
+        assertTrue(rhythms.none { it.first().rest }, "and never starts with one")
+        scores.forEach { score ->
+            val restsWritten = rhythmOf(score).count { it.rest }
+            val layout = ScoreLayoutEngine.layoutSystem(score, 0, null, showTimeSignature = true)
+            val restsDrawn = layout.elements.filterIsInstance<GlyphElement>().count { it.role == Role.REST }
+            assertEquals(restsWritten, restsDrawn, "every rest is one glyph: $score")
+            assertTrue(layout.elements.none { it.role == Role.REST && it.ticks == null }, "every rest inside the bar carries its onset")
+        }
+        assertTrue(scores.count { rhythmOf(it).none { event -> event.rest } } < scores.size / 4, "with rests on, most bars hold one")
     }
 
     @Test
@@ -158,7 +200,7 @@ class ExerciseGeneratorTest {
         val config = ExerciseConfig.DEFAULT
         val scores = seeds.map { ExerciseGenerator.generateInC(config, it) }
 
-        val rhythms = scores.map { score -> score.notes.map { note -> NoteValue.entries.single { it.ticks == note.duration } } }.toSet()
+        val rhythms = scores.map(::rhythmOf).toSet()
         assertEquals(config.rhythms.toSet(), rhythms)
         val pitches = scores.flatMap { score -> score.notes.map { it.spelling } }.toSet()
         assertEquals(config.rightHandRange.indices.count(), pitches.size)

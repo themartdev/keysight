@@ -1,14 +1,20 @@
 package dev.simonmartineau.keysight.run
 
 import dev.simonmartineau.keysight.Fixtures
+import dev.simonmartineau.keysight.notation.Glyph
+import dev.simonmartineau.keysight.notation.GlyphElement
 import dev.simonmartineau.keysight.notation.Mask
 import dev.simonmartineau.keysight.notation.Role
 import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
 import dev.simonmartineau.keysight.notation.TickRange
+import dev.simonmartineau.keysight.score.Clef
+import dev.simonmartineau.keysight.score.ScoreNote
+import dev.simonmartineau.keysight.score.Staff
 import dev.simonmartineau.keysight.score.Ticks
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The mask of a three-segment run, at every beat that matters, for each preset. */
@@ -58,7 +64,8 @@ class RunMaskTest {
     @Test
     fun `segment 0 is never hidden so the count-in reads as a measure of rest`() {
         val layout = ScoreLayoutEngine.layoutSystem(run.score, 0, null, showTimeSignature = true)
-        val rest = layout.elements.single { it.role == Role.REST && it.ticks == Ticks.ZERO }
+        val rest = layout.elements.single { it.role == Role.REST }
+        assertNull(rest.ticks, "a whole-measure rest carries no tick, so no mask can hide it")
 
         listOf(VisibilityPolicy.flash(0.25), VisibilityPolicy.READ_AHEAD).forEach { policy ->
             listOf(-1.0, 0.0, 2.0, 4.0).forEach { beat ->
@@ -91,5 +98,29 @@ class RunMaskTest {
 
         val hidden = elements.filter(mask::hides).mapNotNull { it.noteId }.toSet()
         assertEquals(setOf("2:n1", "2:n2", "2:n3", "2:n4"), hidden)
+    }
+
+    /** A rest inside a bar tells which beat is silent, so it is hidden with the bar; a staff silent through the bar keeps its whole rest. */
+    @Test
+    fun `a hidden bar hides the rests inside it and keeps a whole-measure rest`() {
+        val withRest = Fixtures.oneMeasure(
+            ScoreNote("n1", Fixtures.C4, Ticks.ZERO, Ticks.QUARTER),
+            ScoreNote("n2", Fixtures.E4, Ticks.HALF, Ticks.HALF),
+        ).copy(staves = listOf(Staff(Clef.TREBLE), Staff(Clef.BASS)))
+        val run = Fixtures.run(withRest, withRest)
+        val layout = ScoreLayoutEngine.layoutSystem(run.score, 0, null, showTimeSignature = true)
+        val rests = layout.elements.filterIsInstance<GlyphElement>().filter { it.role == Role.REST }
+        val inner = rests.filter { it.glyph == Glyph.REST_QUARTER }
+        val whole = rests.filter { it.glyph == Glyph.REST_WHOLE }
+        assertEquals(2, inner.size, "a quarter rest in each performed bar")
+        assertEquals(4, whole.size, "the count-in on both staves and the resting bass staff of each bar")
+
+        val flash = VisibilityPolicy.flash(1.0)
+        // Bar 1 is being played and bar 2 is one beat ahead, inside the lookahead.
+        val playingBarOne = runMask(run.timeline, flash, beat = 7.5)
+        assertTrue(playingBarOne.hides(inner[0]), "the rest of the bar being played is hidden with its notes")
+        assertTrue(!playingBarOne.hides(inner[1]), "the next bar's rest shows with the next bar")
+        whole.forEach { assertTrue(!playingBarOne.hides(it), "a whole-measure rest stays") }
+        assertTrue(!runMask(run.timeline, VisibilityPolicy.OPEN_SCORE, beat = 5.0).hides(inner[0]))
     }
 }

@@ -71,6 +71,24 @@ class NoteMarksTest {
     }
 
     @Test
+    fun `an extra played during a rest is drawn beside the rest`() {
+        val withRest = Fixtures.oneMeasure(
+            ScoreNote("n1", Fixtures.C4, Ticks.ZERO, Ticks.QUARTER),
+            ScoreNote("n2", Fixtures.E4, Ticks.HALF, Ticks.QUARTER),
+            ScoreNote("n3", Fixtures.D4, Ticks.quarters(3), Ticks.QUARTER),
+        )
+        val restLayout = ScoreLayoutEngine.layoutSystem(withRest, 0, null, showTimeSignature = true)
+        val rest = restLayout.elements.filterIsInstance<GlyphElement>().single { it.role == Role.REST }
+
+        val mark = assertIs<NoteMark.Extra>(noteMarks(restLayout, withRest, listOf(NoteOutcome.Extra(played(62, 1.0)))).single())
+
+        assertEquals(rest.x + BravuraMetrics.of(Glyph.REST_QUARTER).right + Spacing.CUE_GAP, mark.x, 1e-9)
+        assertEquals(Ticks.QUARTER, mark.ticks)
+        val between = assertIs<NoteMark.Extra>(noteMarks(restLayout, withRest, listOf(NoteOutcome.Extra(played(62, 1.5)))).single())
+        assertEquals((rest.x + BravuraMetrics.of(Glyph.REST_QUARTER).left + restLayout.anchors.getValue("n2").x) / 2, between.x, 1e-9)
+    }
+
+    @Test
     fun `an early extra lands beside the first head`() {
         val mark = assertIs<NoteMark.Extra>(marks(NoteOutcome.Extra(played(64, -0.3))).single())
 

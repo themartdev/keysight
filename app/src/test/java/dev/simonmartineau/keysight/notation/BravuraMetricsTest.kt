@@ -68,6 +68,33 @@ class BravuraMetricsTest {
         }
     }
 
+    /**
+     * The rests are placed by their origin: the whole rest at the fourth line, which it hangs
+     * from, the others at the middle line, which the half rest sits on and the quarter and
+     * eighth rests straddle. The font must agree, or a rest would sit in the wrong space.
+     */
+    @Test
+    fun `the rests hang from, sit on or straddle their origin as the engraving assumes`() {
+        val whole = BravuraMetrics.of(Glyph.REST_WHOLE)
+        assertTrue(whole.top in 0.0..0.1 && whole.bottom in -0.6..-0.4, "the whole rest hangs below its origin: $whole")
+
+        val half = BravuraMetrics.of(Glyph.REST_HALF)
+        assertTrue(half.bottom in -0.1..0.0 && half.top in 0.4..0.6, "the half rest sits on its origin: $half")
+
+        val quarter = BravuraMetrics.of(Glyph.REST_QUARTER)
+        assertTrue(quarter.top > 1.0 && quarter.bottom < -1.0, "the quarter rest straddles its origin: $quarter")
+        assertTrue(quarter.top + quarter.bottom in -0.1..0.1)
+
+        val eighth = BravuraMetrics.of(Glyph.REST_8TH)
+        assertTrue(eighth.top > 0.5 && eighth.bottom < -0.5, "the eighth rest straddles its origin: $eighth")
+
+        listOf(whole, half, quarter, eighth).forEach { rest ->
+            assertTrue(rest.top <= 2.0 && rest.bottom >= -2.0, "a rest at the middle line stays inside the staff: $rest")
+            assertNull(rest.stemUpSE)
+            assertNull(rest.stemDownNW)
+        }
+    }
+
     private companion object {
         const val PX_PER_SPACE = 100f
         const val TOLERANCE = 0.03

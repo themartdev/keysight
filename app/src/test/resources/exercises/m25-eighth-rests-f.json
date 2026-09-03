@@ -1,0 +1,51 @@
+{
+  "id": "m25-eighth-rests-f",
+  "score": {
+    "timeSignature": {
+      "beatsPerMeasure": 4,
+      "beatUnit": 4
+    },
+    "keySignature": -1,
+    "measureCount": 1,
+    "notes": [
+      {
+        "id": "n1",
+        "spelling": {
+          "step": "A",
+          "octave": 4
+        },
+        "onset": 0,
+        "duration": 960
+      },
+      {
+        "id": "n2",
+        "spelling": {
+          "step": "B",
+          "alteration": -1,
+          "octave": 4
+        },
+        "onset": 960,
+        "duration": 480
+      },
+      {
+        "id": "n3",
+        "spelling": {
+          "step": "C",
+          "octave": 5
+        },
+        "onset": 1920,
+        "duration": 960
+      },
+      {
+        "id": "n4",
+        "spelling": {
+          "step": "A",
+          "octave": 4
+        },
+        "onset": 3360,
+        "duration": 480
+      }
+    ]
+  },
+  "musicalDifficulty": 5
+}

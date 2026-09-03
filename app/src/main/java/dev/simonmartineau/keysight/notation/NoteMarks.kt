@@ -83,7 +83,7 @@ fun noteMarks(page: PageLayout, score: Score, outcomes: List<NoteOutcome>, rhyth
                 NoteMark.Extra(
                     system = system,
                     staff = staff,
-                    x = extraX(page.systems[system].layout, ticks),
+                    x = extraX(page.systems[system].layout, staff, ticks),
                     position = StaffPosition.of(spelling, score.staves[staff].clef),
                     accidental = cueAccidental(spelling, score.keySignature),
                     ticks = ticks,
@@ -110,8 +110,16 @@ private fun nearestStaff(pitch: Pitch, score: Score): Int {
     }
 }
 
-private fun extraX(layout: SystemLayout, ticks: Ticks): Double {
+/** Where an extra played at [ticks] goes: on the time axis, or just right of the head or the rest on [staff] it would land on. */
+private fun extraX(layout: SystemLayout, staff: Int, ticks: Ticks): Double {
     val x = layout.xAtTicks(ticks)
-    val overlapped = layout.anchors.values.firstOrNull { abs(it.x - x) < it.headWidth }
-    return if (overlapped == null) x else overlapped.x + overlapped.headWidth + Spacing.CUE_GAP
+    layout.anchors.values.firstOrNull { abs(it.x - x) < it.headWidth }?.let { return it.x + it.headWidth + Spacing.CUE_GAP }
+    val rest = layout.elements.filterIsInstance<GlyphElement>().firstOrNull { element ->
+        val metrics = BravuraMetrics.of(element.glyph)
+        element.role == Role.REST && layout.staffNearest(element.y) == staff && abs(element.x + metrics.left - x) < metrics.width
+    }
+    return if (rest == null) x else rest.x + BravuraMetrics.of(rest.glyph).right + Spacing.CUE_GAP
 }
+
+/** The staff whose bottom line is nearest [y]: how an element that carries no staff says which one it is on. */
+private fun SystemLayout.staffNearest(y: Double): Int = staves.minBy { abs(y - it.baselineY) }.index

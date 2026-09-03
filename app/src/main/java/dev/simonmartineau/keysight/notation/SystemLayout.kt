@@ -18,7 +18,8 @@ enum class Role { STAFF_LINE, BARLINE, BRACE, CLEF, KEY_SIGNATURE, TIME_SIGNATUR
  * belongs to one note (its head, stem, flag, ledger lines and accidental) so a whole note can
  * be tinted at once; a beam belongs to several and carries none. [ticks] is the onset of the
  * note or rest the element belongs to, a beam's first note's, and null for the structure
- * around them; a [Mask] hides by it.
+ * around them and for the whole rest of a staff silent through a measure; a [Mask] hides by
+ * it.
  */
 sealed interface Element {
     val role: Role

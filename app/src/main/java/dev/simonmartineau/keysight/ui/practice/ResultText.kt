@@ -110,7 +110,7 @@ fun levelChangeLines(segments: List<Segment>): List<String> {
     val levels = segments.map { (it.origin as? SegmentOrigin.Generated)?.let { origin -> MusicalLevel.of(origin.config) } }
     return levels.zipWithNext().mapIndexedNotNull { index, (before, after) ->
         if (before == null || after == null) return@mapIndexedNotNull null
-        val changed = MUSICAL_DIMENSIONS.filter { before.rank(it) != after.rank(it) }
+        val changed = MusicalLevel.MUSICAL_DIMENSIONS.filter { before.rank(it) != after.rank(it) }
         if (changed.isEmpty()) return@mapIndexedNotNull null
         val harder = after.rank(changed.first()) > before.rank(changed.first())
         "${directionWord(harder)} from bar ${index + 2}: " + changed.joinToString(", ") { after.label(it) }
@@ -131,8 +131,6 @@ fun nextRunLine(decision: Decision): String? {
 fun lookaheadLabel(beats: Double): String = "${beats.beatsLabel()} ${if (beats == 1.0) "beat" else "beats"} ahead"
 
 private fun directionWord(harder: Boolean): String = if (harder) "Harder" else "Easier"
-
-private val MUSICAL_DIMENSIONS = Dimension.entries.filter { it.movesWithinRun }
 
 fun Double.beatsLabel(): String = if (this == this.toInt().toDouble()) this.toInt().toString() else this.toString()
 

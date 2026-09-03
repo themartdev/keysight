@@ -1,0 +1,49 @@
+{
+  "id": "m26-rests-mixed-bass",
+  "score": {
+    "timeSignature": {
+      "beatsPerMeasure": 4,
+      "beatUnit": 4
+    },
+    "keySignature": 0,
+    "staves": [
+      {
+        "clef": "BASS"
+      }
+    ],
+    "measureCount": 1,
+    "notes": [
+      {
+        "id": "n1",
+        "spelling": {
+          "step": "C",
+          "octave": 3
+        },
+        "onset": 0,
+        "duration": 480,
+        "hand": "LEFT"
+      },
+      {
+        "id": "n2",
+        "spelling": {
+          "step": "D",
+          "octave": 3
+        },
+        "onset": 480,
+        "duration": 480,
+        "hand": "LEFT"
+      },
+      {
+        "id": "n3",
+        "spelling": {
+          "step": "E",
+          "octave": 3
+        },
+        "onset": 1920,
+        "duration": 960,
+        "hand": "LEFT"
+      }
+    ]
+  },
+  "musicalDifficulty": 5
+}

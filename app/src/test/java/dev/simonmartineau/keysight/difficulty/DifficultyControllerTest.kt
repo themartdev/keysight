@@ -10,6 +10,7 @@ import dev.simonmartineau.keysight.score.TimeSignature
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class DifficultyControllerTest {
 
@@ -81,7 +82,7 @@ class DifficultyControllerTest {
     fun `with nothing moved yet a step down starts from the end of the order`() {
         val decision = decide(bars(8, correct = 1))
 
-        assertEquals(Move(Dimension.RHYTHM, Direction.DOWN), decision.move)
+        assertEquals(Move(Dimension.RHYTHM, Direction.DOWN), decision.move, "rests are already off, so the rhythm eases")
         assertEquals(setOf(NoteValue.WHOLE, NoteValue.HALF), decision.position.state.level.noteValues)
     }
 
@@ -95,18 +96,19 @@ class DifficultyControllerTest {
             position = decision.position
         }
 
-        // The fourth move takes the rhythm to eighths, its top, so the second time round the turn passes it by.
+        // The fourth move takes the rhythm to eighths and the fifth turns rests on, both their tops, so the second time round the turn passes them by.
         assertEquals(
             listOf(
-                Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM,
-                Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.LOOKAHEAD,
+                Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS,
+                Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE,
             ),
             moves,
         )
-        assertEquals(1.5, position.runConfig.lookaheadBeats)
+        assertEquals(2.0, position.runConfig.lookaheadBeats)
         assertEquals(4, position.state.level.maxInterval)
         assertEquals(8, position.state.level.width)
         assertEquals(Ladders.RHYTHM.hardest, position.state.level.noteValues)
+        assertTrue(position.state.level.rests)
     }
 
     @Test
@@ -128,11 +130,12 @@ class DifficultyControllerTest {
 
     @Test
     fun `the walk order is the section 8 order, cyclic from the last move`() {
+        assertEquals(listOf(Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS), Dimension.entries)
         assertEquals(Dimension.entries, DifficultyController.walk(null, Direction.UP))
         assertEquals(Dimension.entries.reversed(), DifficultyController.walk(null, Direction.DOWN))
-        assertEquals(listOf(Dimension.RANGE, Dimension.RHYTHM, Dimension.LOOKAHEAD, Dimension.INTERVAL), DifficultyController.walk(Dimension.INTERVAL, Direction.UP))
-        assertEquals(listOf(Dimension.INTERVAL, Dimension.LOOKAHEAD, Dimension.RHYTHM, Dimension.RANGE), DifficultyController.walk(Dimension.INTERVAL, Direction.DOWN))
-        assertEquals(listOf(Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM), DifficultyController.walk(Dimension.RHYTHM, Direction.UP))
+        assertEquals(listOf(Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS, Dimension.LOOKAHEAD, Dimension.INTERVAL), DifficultyController.walk(Dimension.INTERVAL, Direction.UP))
+        assertEquals(listOf(Dimension.INTERVAL, Dimension.LOOKAHEAD, Dimension.RESTS, Dimension.RHYTHM, Dimension.RANGE), DifficultyController.walk(Dimension.INTERVAL, Direction.DOWN))
+        assertEquals(listOf(Dimension.RESTS, Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM), DifficultyController.walk(Dimension.RHYTHM, Direction.UP))
     }
 
     @Test
@@ -151,7 +154,7 @@ class DifficultyControllerTest {
     fun `an interval never outgrows the range, and a range never shrinks under its interval`() {
         val fifths = Position(
             RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE),
-            DifficultyState(MusicalLevel.DEFAULT.copy(maxInterval = 4, noteValues = Ladders.RHYTHM.hardest), lastMoved = Dimension.RANGE),
+            DifficultyState(MusicalLevel.DEFAULT.copy(maxInterval = 4, noteValues = Ladders.RHYTHM.hardest, rests = true), lastMoved = Dimension.RANGE),
         )
         val up = decide(bars(8, position = fifths), fifths)
         assertEquals(Move(Dimension.RANGE, Direction.UP), up.move)
@@ -175,13 +178,30 @@ class DifficultyControllerTest {
     fun `nothing eligible holds without touching the state`() {
         val top = Position(
             RunConfig.DEFAULT.copy(lookaheadBeats = 0.25),
-            DifficultyState(MusicalLevel(7, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest), lastMoved = Dimension.RANGE),
+            DifficultyState(MusicalLevel(7, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest, rests = true), lastMoved = Dimension.RANGE),
         )
 
         val decision = decide(bars(8, position = top), top)
 
         assertNull(decision.move)
         assertEquals(top, decision.position)
+    }
+
+    @Test
+    fun `rests come on after eighths and go off before them`() {
+        val eighths = Position(RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE), DifficultyState(MusicalLevel.DEFAULT.copy(noteValues = Ladders.RHYTHM.hardest), lastMoved = Dimension.RHYTHM))
+        val up = decide(bars(8, position = eighths), eighths)
+        assertEquals(Move(Dimension.RESTS, Direction.UP), up.move)
+        assertTrue(up.position.state.level.rests)
+        assertEquals(Ladders.RHYTHM.hardest, up.position.state.level.noteValues)
+        assertTrue(up.position.state.level.applyTo(base).rests)
+
+        val struggling = decide(bars(8, correct = 1, position = up.position), up.position)
+        assertEquals(Move(Dimension.RESTS, Direction.DOWN), struggling.move)
+        assertEquals(eighths.state.level, struggling.position.state.level)
+
+        val quarters = Position(RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE), DifficultyState(MusicalLevel.DEFAULT, lastMoved = Dimension.RHYTHM))
+        assertEquals(Move(Dimension.RESTS, Direction.UP), decide(bars(8, position = quarters), quarters).move, "rests may come on before eighths when it is their turn")
     }
 
     @Test

@@ -28,9 +28,26 @@ fun ExerciseConfig.violations(score: Score): List<String> {
     val range = rangeOf(score.staves[melodyStaff].clef)
     val allowed = noteValues.map { it.ticks }.toSet()
 
+    /**
+     * The silence from [from] to [to] must be one rest the config allows: one value, where a
+     * rest may go. A silence of two values is not one value, so two rests never follow each
+     * other, and the silence is never at the start of the measure.
+     */
+    fun restProblems(from: Ticks, to: Ticks): List<String> {
+        val length = to - from
+        val value = noteValues.firstOrNull { it.ticks == length }
+        return when {
+            !rests -> listOf("silent from $from to $to without rests")
+            value == null -> listOf("silent from $from to $to, not one of $noteValues")
+            !mayRestAt(length, from, afterRest = false) -> listOf("a $value rest at $from is not where a rest may go")
+            else -> emptyList()
+        }
+    }
+
     var expectedOnset = Ticks.ZERO
     melody.forEach { note ->
-        if (note.onset != expectedOnset) problems += "${note.id} starts at ${note.onset}, not $expectedOnset"
+        if (note.onset < expectedOnset) problems += "${note.id} starts at ${note.onset}, before $expectedOnset"
+        if (note.onset > expectedOnset) problems += restProblems(expectedOnset, note.onset)
         if (note.duration !in allowed) problems += "${note.id} lasts ${note.duration}, not one of $noteValues"
         if (!mayStartAt(note.duration, note.onset)) problems += "${note.id} lasts ${note.duration} and starts off the beat at ${note.onset}"
         if (note.spelling !in range) problems += "${note.id} is ${note.spelling}, outside $range"
@@ -38,7 +55,8 @@ fun ExerciseConfig.violations(score: Score): List<String> {
         if (note.voice != note.staff) problems += "${note.id} is in voice ${note.voice} on staff ${note.staff}"
         expectedOnset = note.end
     }
-    if (melody.isNotEmpty() && expectedOnset != timeSignature.ticksPerMeasure) problems += "the melody ends at $expectedOnset, not at the barline"
+    if (melody.isNotEmpty() && expectedOnset > timeSignature.ticksPerMeasure) problems += "the melody ends at $expectedOnset, past the barline"
+    if (melody.isNotEmpty() && expectedOnset < timeSignature.ticksPerMeasure) problems += restProblems(expectedOnset, timeSignature.ticksPerMeasure)
     melody.zipWithNext().forEach { (a, b) ->
         val interval = abs(b.spelling.diatonicIndex - a.spelling.diatonicIndex)
         if (interval > maxInterval) problems += "${a.id} to ${b.id} is $interval letters, more than $maxInterval"

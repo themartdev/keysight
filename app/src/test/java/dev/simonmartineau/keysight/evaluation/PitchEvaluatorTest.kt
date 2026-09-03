@@ -79,6 +79,49 @@ class PitchEvaluatorTest {
         assertEquals(5, PerformanceEvaluator.EVALUATOR_VERSION, "no judgement changed for eighths")
     }
 
+    /**
+     * A rest is no expected note: silence through it is right, a note in it is an extra, and
+     * the gap it makes between two notes is notated, not a pause. A real hesitation after it
+     * is still a pause.
+     */
+    @Test
+    fun `a rest expects nothing, so silence is right, a note in it is extra and the gap is not a pause`() {
+        val withRest = Fixtures.oneMeasure(
+            ScoreNote("n1", Fixtures.C4, Ticks.ZERO, Ticks.QUARTER),
+            ScoreNote("n2", Fixtures.E4, Ticks.HALF, Ticks.HALF),
+        )
+        val run = Fixtures.run(withRest)
+        fun played(vararg notes: Pair<Pitch, Double>): RunEvaluation = PerformanceEvaluator.evaluate(
+            run.score,
+            run.timeline,
+            startedAt,
+            notes.flatMap { (pitch, beat) ->
+                val onset = performanceStart + (beat * SECOND_NANOS).toLong()
+                listOf(MidiEvent.noteOn(onset, pitch, 90), MidiEvent.noteOff(onset + SECOND_NANOS / 4, pitch))
+            },
+        )
+
+        val silent = played(c4 to 0.0, e4 to 2.0)
+        assertEquals(listOf("Correct", "Correct"), kinds(silent.pitch))
+        assertEquals(1.0, silent.pitch.accuracy)
+        val rhythm = silent.rhythm!!
+        assertEquals(listOf(TimingJudgement.ON_TIME, TimingJudgement.ON_TIME), rhythm.timings.map { it.judgement })
+        assertEquals(emptyList(), rhythm.pauses, "the silence of a rest is notated")
+        assertEquals(Continuity.GOOD, rhythm.continuity)
+        assertEquals(1.0, rhythm.tempoRatio!!, 1e-9)
+
+        val filled = played(c4 to 0.0, d4 to 1.0, e4 to 2.0)
+        assertEquals(listOf("Correct", "Extra", "Correct"), kinds(filled.pitch))
+        assertEquals(1, filled.pitch.extraCount)
+        assertEquals(emptyList(), filled.rhythm!!.pauses)
+
+        val hesitant = played(c4 to 0.0, e4 to 2.7)
+        assertEquals(listOf("Correct", "Correct"), kinds(hesitant.pitch))
+        assertEquals(listOf("1:n2"), hesitant.rhythm!!.pauses.map { it.beforeNoteId }, "a hesitation after the rest is still a pause")
+        assertEquals(Continuity.HESITANT, hesitant.rhythm!!.continuity)
+        assertEquals(5, PerformanceEvaluator.EVALUATOR_VERSION, "no judgement changed for rests")
+    }
+
     @Test
     fun `a perfect performance is all correct`() {
         val result = evaluate(performance(listOf(c4, d4, e4, f4)))

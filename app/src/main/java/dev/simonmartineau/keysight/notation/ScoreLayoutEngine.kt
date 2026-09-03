@@ -23,9 +23,14 @@ import kotlin.math.sign
  * Every rule a generator dimension extends is a small function here: which head a duration
  * takes, where a stem starts and how long it is, which notes are beamed and where the beam
  * goes, which ledger lines a position needs, how much room a duration gets, when an accidental
- * is written. Chords are laid out with every head at the column's x, which is right until two
- * heads a second apart need offsetting; that, rests shorter than a measure, dots and a second
- * beam are for later.
+ * is written, how a silence splits into rests. A rest is not in the score: it is derived, per
+ * staff, from the gaps between what sounds in the measure and takes a column at its onset
+ * like a note. A rest inside a bar is content and carries its onset tick, so the mask hides
+ * it with the bar's notes: a quarter rest left on the page would tell which beat is silent.
+ * The whole rest of a staff with nothing in the measure, the count-in included, is not
+ * content and carries no tick, so it stays on the page. Chords are laid out with every head
+ * at the column's x, which is right until two heads a second apart need offsetting; that,
+ * dots and a second beam are for later.
  */
 object ScoreLayoutEngine {
 
@@ -244,11 +249,20 @@ object ScoreLayoutEngine {
         val beamed: Boolean,
     )
 
-    private class Column(val onset: Ticks, val notes: List<PlannedNote>) {
-        val accidentalRoom: Double = notes.maxOf { planned ->
+    /** One rest as the plan sees it: the silence it stands for on its staff, and its glyph. */
+    private class PlannedRest(val frame: StaffFrame, val onset: Ticks, val duration: Ticks, val glyph: Glyph)
+
+    /** Everything starting at [onset]: notes on any staff, rests on any staff, at least one of them. */
+    private class Column(val onset: Ticks, val notes: List<PlannedNote>, val rests: List<PlannedRest>) {
+        val accidentalRoom: Double = notes.maxOfOrNull { planned ->
             planned.accidental?.let { BravuraMetrics.of(it).width + Spacing.ACCIDENTAL_GAP } ?: 0.0
-        }
-        val advance: Double = notes.minOf { Spacing.advanceFor(it.note.duration, BravuraMetrics.of(it.head).width) }
+        } ?: 0.0
+
+        /** A rest gets the room a note of its value would, measured from its own glyph. */
+        val advance: Double = (
+            notes.map { Spacing.advanceFor(it.note.duration, BravuraMetrics.of(it.head).width) } +
+                rests.map { Spacing.advanceFor(it.duration, BravuraMetrics.of(it.glyph).width) }
+            ).min()
     }
 
     private class MeasurePlan(
@@ -275,29 +289,93 @@ object ScoreLayoutEngine {
             val up = stemUpFor(group.map { StaffPosition.of(it.spelling, frames[it.staff].clef) })
             group.forEach { groupStemUp[it.id] = up }
         }
-        val planned = HashMap<String, PlannedNote>()
-        val columns = notes.groupBy { it.onset }.map { (onset, columnNotes) ->
-            Column(
-                onset,
-                columnNotes.map { note ->
-                    val frame = frames[note.staff]
-                    val position = StaffPosition.of(note.spelling, frame.clef)
-                    PlannedNote(
-                        note = note,
-                        frame = frame,
-                        position = position,
-                        head = headFor(note.duration),
-                        accidental = states[note.staff].accidentalFor(note.spelling),
-                        stemUp = groupStemUp[note.id] ?: position.stemUp,
-                        beamed = note.id in groupStemUp,
-                    ).also { planned[note.id] = it }
-                },
+        val end = start + score.timeSignature.ticksPerMeasure
+        val planned = notes.map { note ->
+            val frame = frames[note.staff]
+            val position = StaffPosition.of(note.spelling, frame.clef)
+            PlannedNote(
+                note = note,
+                frame = frame,
+                position = position,
+                head = headFor(note.duration),
+                accidental = states[note.staff].accidentalFor(note.spelling),
+                stemUp = groupStemUp[note.id] ?: position.stemUp,
+                beamed = note.id in groupStemUp,
             )
         }
-        val beams = groups.map { group -> group.map { planned.getValue(it.id) } }
-        val sounding = columns.flatMap { column -> column.notes.map { it.frame.index } }.toSet()
-        return MeasurePlan(measure, start, start + score.timeSignature.ticksPerMeasure, columns, beams, frames.filter { it.index !in sounding })
+        val byId = planned.associateBy { it.note.id }
+        val sounding = frames.filter { frame -> notes.any { it.staff == frame.index } }
+        val rests = sounding.flatMap { frame -> restsOn(frame, notes.filter { it.staff == frame.index }, start, end, score.timeSignature) }
+        val columns = (planned.map { it.note.onset } + rests.map { it.onset }).distinct().sorted().map { onset ->
+            Column(onset, planned.filter { it.note.onset == onset }, rests.filter { it.onset == onset })
+        }
+        val beams = groups.map { group -> group.map { byId.getValue(it.id) } }
+        return MeasurePlan(measure, start, end, columns, beams, frames - sounding.toSet())
     }
+
+    /**
+     * The rests of one staff that sounds in the measure: every span between [start] and
+     * [end] where none of [staffNotes] sounds, split by [restsFilling]. A staff with nothing
+     * in the measure is not here; it takes a whole rest centred in the measure instead.
+     */
+    private fun restsOn(frame: StaffFrame, staffNotes: List<ScoreNote>, start: Ticks, end: Ticks, timeSignature: TimeSignature): List<PlannedRest> {
+        val rests = ArrayList<PlannedRest>()
+        fun silence(from: Ticks, to: Ticks) {
+            for ((onset, duration) in restsFilling(from - start, to - start, timeSignature)) {
+                rests += PlannedRest(frame, start + onset, duration, restGlyphFor(duration))
+            }
+        }
+        var sounding = start
+        for (note in staffNotes.sortedBy { it.onset }) {
+            if (note.onset > sounding) silence(sounding, note.onset)
+            sounding = maxOf(sounding, note.end)
+        }
+        if (sounding < end) silence(sounding, end)
+        return rests
+    }
+
+    /**
+     * The splitting rule: a silence from [from] to [to], both counted from the start of the
+     * measure, is filled left to right with the largest of [REST_VALUES] that fits and starts
+     * at a multiple of its own length, and that stays inside its beat when shorter than one.
+     * So an eighth rest sits on either half of a beat, a quarter rest starts on a beat, a
+     * half rest starts on beat 1 or 3 of 4/4 and never crosses the middle of the measure (a
+     * half's worth of silence on beat 2 is two quarter rests), and in 3/4 a half rest only
+     * opens the measure. A silence nothing aligns with, a sixteenth's offset, takes the
+     * largest value that fits, and one shorter than an eighth takes an eighth, since nothing
+     * shorter is drawn yet. Returns each rest's onset and duration.
+     */
+    fun restsFilling(from: Ticks, to: Ticks, timeSignature: TimeSignature): List<Pair<Ticks, Ticks>> {
+        require(to > from) { "a silence must be non-empty: $from to $to" }
+        val beat = timeSignature.ticksPerBeat.value
+        val rests = ArrayList<Pair<Ticks, Ticks>>()
+        var at = from
+        while (at < to) {
+            val remaining = (to - at).value
+            val fitting = REST_VALUES.filter { it.value <= remaining }
+            val value = fitting.firstOrNull { rest ->
+                at.value % rest.value == 0 && (rest.value >= beat || at.value / beat == (at.value + rest.value - 1) / beat)
+            } ?: fitting.firstOrNull() ?: Ticks.EIGHTH
+            rests += at to value
+            at += value
+        }
+        return rests
+    }
+
+    private fun restGlyphFor(duration: Ticks): Glyph = when (duration) {
+        Ticks.WHOLE -> Glyph.REST_WHOLE
+        Ticks.HALF -> Glyph.REST_HALF
+        Ticks.QUARTER -> Glyph.REST_QUARTER
+        else -> Glyph.REST_8TH
+    }
+
+    /**
+     * The whole rest hangs from the fourth line; every other rest is placed by its origin on
+     * the middle line, which is how SMuFL draws them: the half rest sits on it, the quarter
+     * and eighth rests straddle it.
+     */
+    private fun restPositionFor(glyph: Glyph): StaffPosition =
+        if (glyph == Glyph.REST_WHOLE) WHOLE_REST_POSITION else StaffPosition.MIDDLE_LINE
 
     /**
      * The beaming rule: on each staff and voice, flagged notes whose onsets fall in the same
@@ -340,6 +418,7 @@ object ScoreLayoutEngine {
         for (column in plan.columns) {
             val headX = columnX + column.accidentalRoom
             for (planned in column.notes) placeNote(planned, headX, elements, anchors)
+            for (rest in column.rests) placeRest(rest, headX, elements)
             timeAxis += TimePoint(column.onset, headX)
             columnX = headX + column.advance * stretch
         }
@@ -349,12 +428,19 @@ object ScoreLayoutEngine {
             columnX = x + EMPTY_MEASURE_WIDTH * stretch
         }
         val barlineX = columnX
+        // A staff silent for the whole measure is not content: its whole rest carries no tick and is never hidden.
         val rest = BravuraMetrics.of(Glyph.REST_WHOLE)
         for (frame in plan.resting) {
             val restX = (x + barlineX) / 2 - rest.width / 2
-            elements += GlyphElement(Glyph.REST_WHOLE, restX - rest.left, frame.baselineY + WHOLE_REST_POSITION.y, Role.REST, ticks = plan.start)
+            elements += GlyphElement(Glyph.REST_WHOLE, restX - rest.left, frame.baselineY + WHOLE_REST_POSITION.y, Role.REST)
         }
         return barlineX
+    }
+
+    /** A rest's left edge sits where a head's would, at [headX]; it belongs to no note but to its onset, which the mask hides by. */
+    private fun placeRest(rest: PlannedRest, headX: Double, elements: MutableList<Element>) {
+        val metrics = BravuraMetrics.of(rest.glyph)
+        elements += GlyphElement(rest.glyph, headX - metrics.left, rest.frame.baselineY + restPositionFor(rest.glyph).y, Role.REST, ticks = rest.onset)
     }
 
     private fun placeNote(planned: PlannedNote, headX: Double, elements: MutableList<Element>, anchors: MutableMap<String, NoteAnchor>) {
@@ -442,7 +528,7 @@ object ScoreLayoutEngine {
         else -> Glyph.NOTEHEAD_BLACK
     }
 
-    /** Shorter than a quarter takes a flag or a beam; one of each, since a second one, for sixteenths, waits like dots and rests do. */
+    /** Shorter than a quarter takes a flag or a beam; one of each, since a second one, for sixteenths, waits like dots do. */
     private fun isFlagged(duration: Ticks): Boolean = duration < Ticks.QUARTER
 
     /** Where a note's stem goes: its x, where it leaves the head and where its tip would be on its own. */
@@ -496,6 +582,9 @@ object ScoreLayoutEngine {
 
     /** A whole rest hangs from the fourth line. */
     private val WHOLE_REST_POSITION = StaffPosition(6)
+
+    /** The rests a silence may split into, longest first; the whole rest only for a silence a whole long inside a longer measure. */
+    private val REST_VALUES = listOf(Ticks.WHOLE, Ticks.HALF, Ticks.QUARTER, Ticks.EIGHTH)
 
     /** Room a measure with nothing in it takes: what a whole note would. */
     private val EMPTY_MEASURE_WIDTH: Double = Spacing.advanceFor(Ticks.WHOLE, BravuraMetrics.of(Glyph.NOTEHEAD_WHOLE).width)

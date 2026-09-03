@@ -11,7 +11,8 @@ import kotlin.math.min
  * values rather than rung indices, so a stored level keeps its meaning when a ladder is
  * reshaped. [applyTo] lays them over the player's own choices (key, hands, accompaniment,
  * meter), and [of] reads them back from any configuration, which is how a segment's stored
- * configuration says what level it was read at.
+ * configuration says what level it was read at. [rests] defaults so a level stored before
+ * the rests dimension reads as it was.
  */
 @Serializable
 data class MusicalLevel(
@@ -19,6 +20,7 @@ data class MusicalLevel(
     val rightHandRange: PitchRange,
     val leftHandRange: PitchRange,
     val noteValues: Set<NoteValue>,
+    val rests: Boolean = false,
 ) {
     /** Notes per hand, the narrower hand counting: an interval must fit inside it. */
     val width: Int get() = min(rightHandRange.indices.count(), leftHandRange.indices.count())
@@ -35,6 +37,7 @@ data class MusicalLevel(
         rightHandRange = rightHandRange,
         leftHandRange = leftHandRange,
         noteValues = noteValues,
+        rests = rests,
     )
 
     /** Where the level stands on [dimension], increasing with difficulty. */
@@ -42,25 +45,29 @@ data class MusicalLevel(
         Dimension.INTERVAL -> maxInterval.toDouble()
         Dimension.RANGE -> width.toDouble()
         Dimension.RHYTHM -> -shortestValue.ticks.value.toDouble()
+        Dimension.RESTS -> if (rests) 1.0 else 0.0
         Dimension.LOOKAHEAD -> error("the lookahead is not a musical dimension")
     }
 
-    /** The rung of [dimension] in words: "up to thirds", "five notes", "quarter notes". */
+    /** The rung of [dimension] in words: "up to thirds", "five notes", "quarter notes", "no rests". */
     fun label(dimension: Dimension): String = when (dimension) {
         Dimension.INTERVAL -> intervalLabel(maxInterval)
         Dimension.RANGE -> rangeLabel(width)
         Dimension.RHYTHM -> rhythmLabel(shortestValue)
+        Dimension.RESTS -> restsLabel(rests)
         Dimension.LOOKAHEAD -> error("the lookahead is not a musical dimension")
     }
 
-    /** "Up to thirds, five notes, quarter notes." */
+    /** "Up to thirds, five notes, quarter notes, no rests." */
     val description: String
-        get() = listOf(Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM).joinToString(", ", postfix = ".") { label(it) }
-            .replaceFirstChar { it.uppercase() }
+        get() = MUSICAL_DIMENSIONS.joinToString(", ", postfix = ".") { label(it) }.replaceFirstChar { it.uppercase() }
 
     companion object {
+        /** The dimensions a level has a position on, in walk order. */
+        val MUSICAL_DIMENSIONS: List<Dimension> = Dimension.entries.filter { it.movesWithinRun }
+
         fun of(config: ExerciseConfig): MusicalLevel =
-            MusicalLevel(config.maxInterval, config.rightHandRange, config.leftHandRange, config.noteValues)
+            MusicalLevel(config.maxInterval, config.rightHandRange, config.leftHandRange, config.noteValues, config.rests)
 
         /** The generator's defaults: where every player starts. */
         val DEFAULT: MusicalLevel = of(ExerciseConfig.DEFAULT)
@@ -100,5 +107,7 @@ data class MusicalLevel(
             NoteValue.QUARTER -> "quarter notes"
             NoteValue.EIGHTH -> "eighth notes"
         }
+
+        fun restsLabel(rests: Boolean): String = if (rests) "with rests" else "no rests"
     }
 }

@@ -95,8 +95,12 @@ object DifficultyController {
             }
             Dimension.RHYTHM -> {
                 val values = Ladders.RHYTHM.step(level.noteValues, direction) ?: return null
-                if (rhythmsFilling(values, base.timeSignature).isEmpty()) return null
+                if (rhythmsFilling(values, base.timeSignature, level.rests).isEmpty()) return null
                 position.withLevel(level.copy(noteValues = values))
+            }
+            Dimension.RESTS -> {
+                val rests = Ladders.RESTS.step(level.rests, direction) ?: return null
+                position.withLevel(level.copy(rests = rests))
             }
         }
     }

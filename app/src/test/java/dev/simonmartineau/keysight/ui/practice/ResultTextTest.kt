@@ -134,7 +134,7 @@ class ResultTextTest {
     fun `the level line reads the first bar's configuration, and bundled content has none`() {
         val generated = RunContext(listOf(generatedSegment(1L, 1, ExerciseConfig.DEFAULT)), RunConfig.DEFAULT.copy(segmentCount = 1), seed = 1L)
 
-        assertEquals("Up to thirds, five notes, quarter notes.", levelLine(generated))
+        assertEquals("Up to thirds, five notes, quarter notes, no rests.", levelLine(generated))
         assertNull(levelLine(Fixtures.slowRun))
     }
 
@@ -143,10 +143,11 @@ class ResultTextTest {
         val thirds = ExerciseConfig.DEFAULT
         val fourths = thirds.copy(maxInterval = 3)
         val halves = fourths.copy(noteValues = Ladders.RHYTHM.easiest)
-        val segments = listOf(thirds, thirds, fourths, fourths, halves, halves, fourths).mapIndexed { index, config -> generatedSegment(1L, index + 1, config) }
+        val rests = fourths.copy(rests = true)
+        val segments = listOf(thirds, thirds, fourths, fourths, halves, halves, fourths, rests, fourths).mapIndexed { index, config -> generatedSegment(1L, index + 1, config) }
 
         assertEquals(
-            listOf("Harder from bar 3: up to fourths", "Easier from bar 5: half notes", "Harder from bar 7: quarter notes"),
+            listOf("Harder from bar 3: up to fourths", "Easier from bar 5: half notes", "Harder from bar 7: quarter notes", "Harder from bar 8: with rests", "Easier from bar 9: no rests"),
             levelChangeLines(segments),
         )
         assertEquals(emptyList(), levelChangeLines(segments.take(2)))
@@ -159,8 +160,11 @@ class ResultTextTest {
         val lookahead = Decision(Position(config, DifficultyState(lastMoved = Dimension.LOOKAHEAD)), Move(Dimension.LOOKAHEAD, Direction.UP))
         val range = Decision(Position(config, DifficultyState(MusicalLevel.DEFAULT.copy(rightHandRange = Ladders.RANGE.rungs[1].right, leftHandRange = Ladders.RANGE.rungs[1].left), Dimension.RANGE)), Move(Dimension.RANGE, Direction.DOWN))
 
+        val rests = Decision(Position(config, DifficultyState(MusicalLevel.DEFAULT.copy(rests = true), Dimension.RESTS)), Move(Dimension.RESTS, Direction.UP))
+
         assertEquals("Harder next run: 1 beat ahead", nextRunLine(lookahead))
         assertEquals("Easier next run: a sixth", nextRunLine(range))
+        assertEquals("Harder next run: with rests", nextRunLine(rests))
         assertNull(nextRunLine(Decision(lookahead.position, null)))
         assertEquals("0.75 beats ahead", lookaheadLabel(0.75))
     }

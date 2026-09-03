@@ -19,8 +19,10 @@ import dev.simonmartineau.keysight.score.transposed
  * walk: a rhythm from the config's vocabulary, a start anywhere in the hand's range, then
  * steps of at most [ExerciseConfig.maxInterval] letters that stay in the range, with a
  * contour: steps that carry on in the bar's direction weigh twice the others, and the
- * direction turns at the edge of the range. With both hands the melody's staff is drawn per
- * bar, the other staff resting or holding one note of the tonic triad for the bar.
+ * direction turns at the edge of the range. A rest in the rhythm is a gap the walk skips:
+ * the notes stay one melody, and the score holds nothing for the silence. With both hands
+ * the melody's staff is drawn per bar, the other staff resting or holding one note of the
+ * tonic triad for the bar.
  *
  * [GENERATOR_VERSION] is stored with every segment beside its seed and configuration; it
  * changes whenever the same inputs would produce a different score.
@@ -47,21 +49,23 @@ object ExerciseGenerator {
         val melodyStaff = if (config.hands == Hands.BOTH) random.nextInt(staves.size) else 0
         val rhythm = config.rhythms[random.nextInt(config.rhythms.size)]
         val range = config.rangeOf(staves[melodyStaff].clef)
-        val indices = walk(random, range.indices, config.maxInterval, rhythm.size)
+        val indices = walk(random, range.indices, config.maxInterval, rhythm.count { !it.rest })
 
         val notes = ArrayList<ScoreNote>()
         var onset = Ticks.ZERO
-        indices.forEachIndexed { index, diatonicIndex ->
-            notes += ScoreNote(
-                id = "n${index + 1}",
-                spelling = spellingOf(diatonicIndex),
-                onset = onset,
-                duration = rhythm[index].ticks,
-                voice = melodyStaff,
-                hand = handOn(staves[melodyStaff].clef),
-                staff = melodyStaff,
-            )
-            onset += rhythm[index].ticks
+        for (event in rhythm) {
+            if (!event.rest) {
+                notes += ScoreNote(
+                    id = "n${notes.size + 1}",
+                    spelling = spellingOf(indices[notes.size]),
+                    onset = onset,
+                    duration = event.ticks,
+                    voice = melodyStaff,
+                    hand = handOn(staves[melodyStaff].clef),
+                    staff = melodyStaff,
+                )
+            }
+            onset += event.ticks
         }
 
         if (config.accompaniment == Accompaniment.HELD_NOTE) {
