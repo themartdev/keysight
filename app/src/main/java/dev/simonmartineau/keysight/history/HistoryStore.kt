@@ -21,6 +21,12 @@ interface HistoryStore {
     suspend fun run(id: String): StoredRun?
 
     /**
+     * Every run started at or after [sinceEpochMillis] as a digest, oldest first, kept up to
+     * date: what a table or a chart reads for every run there is, without scores or MIDI.
+     */
+    fun runDigests(sinceEpochMillis: Long): Flow<List<RunDigest>>
+
+    /**
      * Stores [evaluations], one per judged segment of [runId] in order, under their own
      * evaluator version. Judgements at other versions are kept; nothing else is written.
      */
@@ -53,6 +59,9 @@ class InMemoryHistoryStore(
         runsFlow.map { runs -> runs.filter { it.record.sessionId == sessionId }.sortedBy { it.record.startedAtEpochMillis } }
 
     override suspend fun run(id: String): StoredRun? = runsFlow.value.firstOrNull { it.record.id == id }
+
+    override fun runDigests(sinceEpochMillis: Long): Flow<List<RunDigest>> =
+        runsFlow.map { runs -> runs.map { it.toDigest() }.since(sinceEpochMillis).sortedBy { it.startedAtEpochMillis } }
 
     override suspend fun addEvaluations(runId: String, evaluations: List<EvaluationResult>) {
         stored.getOrPut(runId) { mutableListOf() } += evaluations

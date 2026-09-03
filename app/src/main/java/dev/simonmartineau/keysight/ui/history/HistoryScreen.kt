@@ -1,10 +1,11 @@
 package dev.simonmartineau.keysight.ui.history
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,39 +15,48 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.simonmartineau.keysight.di.AppContainer
-import dev.simonmartineau.keysight.history.SessionRecord
+import dev.simonmartineau.keysight.history.DayCount
+import dev.simonmartineau.keysight.history.SessionDigest
 import dev.simonmartineau.keysight.history.SessionSummary
 import dev.simonmartineau.keysight.history.StoredRun
 import dev.simonmartineau.keysight.ui.practice.levelLine
 import dev.simonmartineau.keysight.ui.practice.scoreLine
 import dev.simonmartineau.keysight.ui.practice.summaryHeader
+import dev.simonmartineau.keysight.ui.theme.Chip
+import dev.simonmartineau.keysight.ui.theme.Hairline
+import dev.simonmartineau.keysight.ui.theme.Metrics
+import dev.simonmartineau.keysight.ui.theme.SectionHeading
+import dev.simonmartineau.keysight.ui.theme.SessionRow
+import dev.simonmartineau.keysight.ui.theme.SessionRowHeader
+import dev.simonmartineau.keysight.ui.theme.Sparkbars
+import dev.simonmartineau.keysight.ui.theme.palette
+import dev.simonmartineau.keysight.ui.theme.type
 
 /**
- * Past sessions, newest first. Arriving from practice expands [currentSessionId], so the
- * session being played is the summary on top; a tap expands or collapses any other.
+ * Past sessions as a table, newest first, under a fortnight of bars per day. Arriving from
+ * a run expands [currentSessionId]; a row with one run opens that run's page, any other
+ * expands to its summary and its runs.
  */
 @Composable
-fun HistoryScreen(container: AppContainer, currentSessionId: String?, onOpenRun: (runId: String) -> Unit, onBack: () -> Unit) {
+fun HistoryScreen(container: AppContainer, currentSessionId: String?, onOpenRun: (runId: String) -> Unit) {
     val viewModel: HistoryViewModel = viewModel(factory = HistoryViewModel.factory(container))
-    val sessions by viewModel.sessions.collectAsStateWithLifecycle()
+    val sessions by viewModel.digests.collectAsStateWithLifecycle()
+    val days by viewModel.days.collectAsStateWithLifecycle()
     val expanded by viewModel.expanded.collectAsStateWithLifecycle()
     val summary by viewModel.summary.collectAsStateWithLifecycle()
 
@@ -54,108 +64,95 @@ fun HistoryScreen(container: AppContainer, currentSessionId: String?, onOpenRun:
 
     HistoryContent(
         sessions = sessions,
+        days = days,
         currentSessionId = currentSessionId,
         expanded = expanded,
         summary = summary,
+        now = System.currentTimeMillis(),
         onToggle = viewModel::toggle,
         onOpenRun = onOpenRun,
-        onBack = onBack,
     )
 }
 
 /**
- * The list. [sessions] is null while loading; [summary] is the expanded session's, null
- * while it loads. An expanded session shows its summary, then its runs, each a row that
- * opens the run's page; the weakest bars and the moves open the run they name.
+ * The page. [sessions] is null while loading; [summary] is the expanded session's, null
+ * while it loads. An expanded session shows its pooled summary, then its runs, each a row
+ * that opens the run's page; the weakest bars and the moves open the run they name.
  */
 @Composable
 fun HistoryContent(
-    sessions: List<SessionRecord>?,
+    sessions: List<SessionDigest>?,
+    days: List<DayCount>,
     currentSessionId: String?,
     expanded: String?,
     summary: SessionSummary?,
+    now: Long,
     onToggle: (String) -> Unit,
     onOpenRun: (runId: String) -> Unit,
-    onBack: () -> Unit,
 ) {
-    ScreenScaffold(title = "History", backLabel = "Practice", onBack = onBack) {
+    val palette = MaterialTheme.palette
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = Metrics.PagePaddingSides,
+            top = Metrics.PagePaddingTop,
+            end = Metrics.PagePaddingSides,
+            bottom = Metrics.PagePaddingBottom,
+        ),
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                Text("History", style = MaterialTheme.type.screenTitle, color = palette.ink, modifier = Modifier.weight(1f))
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Bars per day, ${HistoryViewModel.CHART_DAYS} days", style = MaterialTheme.type.micro, color = palette.onSurfaceFaint)
+                    Spacer(Modifier.height(6.dp))
+                    Sparkbars(days.map { it.bars }, height = 44.dp)
+                }
+            }
+            Spacer(Modifier.height(Metrics.GapBlocks))
+        }
         when {
-            sessions == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            sessions.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Nothing recorded yet. Every run you play ends up here.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
+            sessions == null -> Unit
+            sessions.isEmpty() -> item {
+                Text("Nothing recorded yet. Every run you play ends up here.", style = MaterialTheme.type.body, color = palette.onSurfaceMuted)
             }
-            else -> LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(sessions, key = { it.id }) { session ->
-                    val open = session.id == expanded
-                    SessionCard(
-                        title = sessionTitle(session, currentSessionId),
+            else -> {
+                item { SessionRowHeader() }
+                items(sessions, key = { it.session.id }) { session ->
+                    val open = session.session.id == expanded
+                    SessionRow(
+                        whenText = if (session.session.id == currentSessionId) "This session" else whenLabel(session.session.startedAtEpochMillis, now),
+                        what = whatLabel(session),
+                        runs = runsLabel(session.runCount),
+                        accuracy = accuracyLabel(session.pooled),
                         expanded = open,
-                        summary = summary?.takeIf { open && it.session.id == session.id },
-                        onToggle = { onToggle(session.id) },
-                        onOpenRun = onOpenRun,
+                        onClick = {
+                            val only = session.runs.singleOrNull()
+                            if (only != null) onOpenRun(only.id) else onToggle(session.session.id)
+                        },
                     )
-                }
-            }
-        }
-    }
-}
-
-/** A title row with a back button, and the content below it: the frame both history screens share. */
-@Composable
-internal fun ScreenScaffold(title: String, backLabel: String, onBack: () -> Unit, content: @Composable () -> Unit) {
-    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onBack) { Text(backLabel) }
-                Spacer(Modifier.width(8.dp))
-                Text(title, style = MaterialTheme.typography.titleLarge)
-            }
-            Spacer(Modifier.height(8.dp))
-            content()
-        }
-    }
-}
-
-@Composable
-private fun SessionCard(title: String, expanded: Boolean, summary: SessionSummary?, onToggle: () -> Unit, onOpenRun: (String) -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onToggle)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Text(
-                    if (expanded) "Hide" else "Show",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            if (expanded) {
-                if (summary == null) {
-                    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                } else {
-                    SessionSummaryBlock(summary, onOpenRun, Modifier.padding(horizontal = 16.dp))
-                    Spacer(Modifier.height(8.dp))
-                    summary.runs.forEachIndexed { index, run ->
-                        HorizontalDivider()
-                        RunRow(index + 1, run, Modifier.clickable { onOpenRun(run.record.id) })
+                    if (open) {
+                        ExpandedSession(summary?.takeIf { it.session.id == session.session.id }, onOpenRun)
                     }
-                    Spacer(Modifier.height(4.dp))
                 }
+            }
+        }
+    }
+}
+
+/** The expanded state of a row: the session pooled, then its runs. [summary] is null while it loads. */
+@Composable
+private fun ExpandedSession(summary: SessionSummary?, onOpenRun: (String) -> Unit) {
+    val palette = MaterialTheme.palette
+    Column(Modifier.fillMaxWidth().padding(start = 160.dp, top = Metrics.GapControls, bottom = Metrics.GapBlocks)) {
+        if (summary == null) {
+            Text("Reading the session", style = MaterialTheme.type.meta, color = palette.onSurfaceFaint)
+        } else {
+            SessionSummaryBlock(summary, onOpenRun)
+            Spacer(Modifier.height(Metrics.GapControls))
+            SectionHeading("Runs")
+            summary.runs.forEachIndexed { index, run ->
+                RunLine(index + 1, run, onClick = { onOpenRun(run.record.id) })
             }
         }
     }
@@ -168,32 +165,33 @@ private fun SessionCard(title: String, expanded: Boolean, summary: SessionSummar
  */
 @Composable
 fun SessionSummaryBlock(summary: SessionSummary, onOpenRun: (String) -> Unit, modifier: Modifier = Modifier) {
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val palette = MaterialTheme.palette
     Column(modifier) {
-        Text(sessionCountsLine(summary), style = MaterialTheme.typography.bodyMedium, color = muted)
+        Text(sessionCountsLine(summary), style = MaterialTheme.type.meta, color = palette.onSurfaceMuted)
         sessionScoreLine(summary)?.let { line ->
             Spacer(Modifier.height(4.dp))
-            Text(line, style = MaterialTheme.typography.titleMedium)
+            Text(line, style = MaterialTheme.type.lead, color = palette.ink)
         }
         val levelLines = sessionLevelLines(summary)
-        if (levelLines.isNotEmpty()) Spacer(Modifier.height(8.dp))
-        levelLines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, color = muted) }
+        if (levelLines.isNotEmpty()) Spacer(Modifier.height(Metrics.GapTight))
+        levelLines.forEach { Text(it, style = MaterialTheme.type.body, color = palette.onSurfaceMuted) }
         summary.moves.forEach { move ->
             Text(
                 move.line,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.type.body,
+                color = palette.ink,
                 modifier = Modifier
-                    .clickable { onOpenRun(move.runId) }
+                    .clickable(role = Role.Button) { onOpenRun(move.runId) }
                     .padding(vertical = 2.dp),
             )
         }
         if (summary.weakestBars.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(if (summary.weakestBars.size == 1) "Weakest bar" else "Weakest bars", style = MaterialTheme.typography.labelMedium, color = muted)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            Spacer(Modifier.height(Metrics.GapTight))
+            Text(if (summary.weakestBars.size == 1) "Weakest bar" else "Weakest bars", style = MaterialTheme.type.micro, color = palette.onSurfaceFaint)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(Metrics.GapTight)) {
                 summary.weakestBars.forEach { bar ->
-                    SuggestionChip(onClick = { onOpenRun(bar.runId) }, label = { Text(bar.label) })
+                    Chip(bar.label, onClick = { onOpenRun(bar.runId) })
                 }
             }
         }
@@ -202,24 +200,35 @@ fun SessionSummaryBlock(summary: SessionSummary, onOpenRun: (String) -> Unit, mo
 
 /** One run of a session: when, what it was, the level it was read at, how it went, and why it stopped if it did. */
 @Composable
-private fun RunRow(runIndex: Int, run: StoredRun, modifier: Modifier = Modifier) {
+private fun RunLine(runIndex: Int, run: StoredRun, onClick: () -> Unit) {
+    val palette = MaterialTheme.palette
     val record = run.record
     val evaluation = run.evaluation
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Column(Modifier.width(64.dp)) {
-            Text("Run $runIndex", style = MaterialTheme.typography.labelMedium, color = muted)
-            Text(timeLabel(record.startedAtEpochMillis), style = MaterialTheme.typography.bodyMedium)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(summaryHeader(record.config, record.score, record.segments.size), style = MaterialTheme.typography.bodyMedium)
-            levelLine(record.segments)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = muted) }
-            if (evaluation.committedCount > 0) {
-                Text(scoreLine(evaluation.pitch, evaluation.rhythm), style = MaterialTheme.typography.bodyMedium, color = muted)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Column {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(if (pressed) palette.paperDim else Color.Transparent)
+                .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+                .padding(vertical = 10.dp),
+        ) {
+            Column(Modifier.width(96.dp)) {
+                Text("Run $runIndex", style = MaterialTheme.type.micro, color = palette.onSurfaceFaint)
+                Text(timeLabel(record.startedAtEpochMillis), style = MaterialTheme.type.body, color = palette.ink)
             }
-            record.abortReason?.let { reason ->
-                Text(stoppedLine(reason), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            Column(Modifier.weight(1f)) {
+                Text(summaryHeader(record.config, record.score, record.segments.size), style = MaterialTheme.type.body, color = palette.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                levelLine(record.segments)?.let { Text(it, style = MaterialTheme.type.meta, color = palette.onSurfaceMuted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                if (evaluation.committedCount > 0) {
+                    Text(scoreLine(evaluation.pitch, evaluation.rhythm), style = MaterialTheme.type.meta, color = palette.onSurfaceMuted, maxLines = 1)
+                }
+                record.abortReason?.let { reason ->
+                    Text(stoppedLine(reason), style = MaterialTheme.type.meta, color = palette.onSurfaceMuted)
+                }
             }
         }
+        Hairline()
     }
 }

@@ -5,11 +5,13 @@ import dev.simonmartineau.keysight.data.entity.RunEntity
 import dev.simonmartineau.keysight.data.entity.SessionEntity
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.history.HistoryStore
+import dev.simonmartineau.keysight.history.RunDigest
 import dev.simonmartineau.keysight.history.SessionRecord
 import dev.simonmartineau.keysight.history.StoredRun
 import dev.simonmartineau.keysight.run.RunHistory
 import dev.simonmartineau.keysight.run.RunRecord
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
@@ -50,6 +52,14 @@ class RoomRunHistory(
         database.runDao().observeBySession(sessionId).map { rows -> rows.mapNotNull { load(it) } }
 
     override suspend fun run(id: String): StoredRun? = database.runDao().byId(id)?.let { load(it) }
+
+    override fun runDigests(sinceEpochMillis: Long): Flow<List<RunDigest>> {
+        val dao = database.runDao()
+        return combine(dao.observeDigestsSince(sinceEpochMillis), dao.observeLatestEvaluationsSince(sinceEpochMillis)) { rows, judged ->
+            val byRun = judged.groupBy({ it.runId }, { it.evaluation })
+            rows.mapNotNull { row -> row.toDigest(byRun[row.id].orEmpty()) }
+        }
+    }
 
     /** A new row per segment at the judgement's version: the primary key keeps every older judgement. */
     override suspend fun addEvaluations(runId: String, evaluations: List<EvaluationResult>) {

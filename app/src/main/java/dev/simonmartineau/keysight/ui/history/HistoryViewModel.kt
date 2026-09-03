@@ -6,7 +6,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.simonmartineau.keysight.di.AppContainer
+import dev.simonmartineau.keysight.history.DayCount
 import dev.simonmartineau.keysight.history.HistoryReader
+import dev.simonmartineau.keysight.history.SessionDigest
+import dev.simonmartineau.keysight.history.barsPerDay
+import dev.simonmartineau.keysight.history.sessionDigests
 import dev.simonmartineau.keysight.history.SessionRecord
 import dev.simonmartineau.keysight.history.SessionSummary
 import dev.simonmartineau.keysight.history.StoredRun
@@ -22,9 +26,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
 
 /** A stored run's page as it loads. */
 sealed interface RunPageState {
@@ -45,12 +52,25 @@ sealed interface RunPageState {
 class HistoryViewModel(
     private val reader: HistoryReader,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val now: () -> Long = System::currentTimeMillis,
+    private val zone: ZoneId = ZoneId.systemDefault(),
 ) : ViewModel() {
 
     /** Newest first; null until the first read. */
     val sessions: StateFlow<List<SessionRecord>?> = reader.sessions()
         .flowOn(dispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MILLIS), null)
+
+    /** Every session as a row, newest first, with its runs' digests; null until the first read. */
+    val digests: StateFlow<List<SessionDigest>?> = combine(reader.sessions(), reader.runDigests(0L)) { sessions, runs -> sessionDigests(sessions, runs) }
+        .flowOn(dispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MILLIS), null)
+
+    /** Bars read per day over the last [CHART_DAYS] days, oldest first. */
+    val days: StateFlow<List<DayCount>> = reader.runDigests(0L)
+        .map { runs -> barsPerDay(runs, CHART_DAYS, Instant.ofEpochMilli(now()).atZone(zone).toLocalDate(), zone) }
+        .flowOn(dispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MILLIS), emptyList())
 
     private val _expanded = MutableStateFlow<String?>(null)
     val expanded: StateFlow<String?> = _expanded.asStateFlow()
@@ -83,6 +103,9 @@ class HistoryViewModel(
 
     companion object {
         private const val STOP_AFTER_MILLIS = 5_000L
+
+        /** How many days the chart at the top looks back, today included. */
+        const val CHART_DAYS = 14
 
         fun factory(container: AppContainer): ViewModelProvider.Factory = viewModelFactory {
             initializer { HistoryViewModel(container.historyReader()) }

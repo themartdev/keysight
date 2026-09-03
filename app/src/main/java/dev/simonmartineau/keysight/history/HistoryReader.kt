@@ -21,6 +21,13 @@ class HistoryReader(private val store: HistoryStore) {
 
     suspend fun run(id: String): StoredRun? = store.run(id)?.let { current(it) }
 
+    /**
+     * The digests of every run since [sinceEpochMillis], as stored: a digest carries the
+     * judgement at the version that stored it and is not brought up to date, since a table of
+     * every run cannot afford to replay every run's MIDI. Opening a run does that.
+     */
+    fun runDigests(sinceEpochMillis: Long): Flow<List<RunDigest>> = store.runDigests(sinceEpochMillis)
+
     private suspend fun current(run: StoredRun): StoredRun {
         if (run.isCurrent) return run
         val judged = run.reevaluated()

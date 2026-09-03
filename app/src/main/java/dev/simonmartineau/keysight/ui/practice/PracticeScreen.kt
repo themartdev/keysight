@@ -152,10 +152,6 @@ fun PracticeContent(
                 }
                 ThemeMenu(theme, actions.setTheme)
             }
-            if (settingsShown) {
-                Spacer(Modifier.height(4.dp))
-                SettingsRow(config, content, actions)
-            }
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -189,76 +185,6 @@ private fun MidiStatusRow(connection: MidiConnection, modifier: Modifier = Modif
 }
 
 @Composable
-private fun SettingsRow(config: RunConfig, content: ContentConfig, actions: PracticeActions) {
-    Column {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            VisibilityMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = mode == config.mode,
-                    onClick = { actions.setMode(mode) },
-                    label = { Text(mode.label) },
-                )
-            }
-        }
-        Text("Lookahead, beats", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            RunChoices.LOOKAHEAD_BEATS.forEach { beats ->
-                FilterChip(
-                    selected = beats == config.lookaheadBeats,
-                    onClick = { actions.setLookaheadBeats(beats) },
-                    enabled = config.mode == VisibilityMode.FLASH,
-                    label = { Text(beats.beatsLabel()) },
-                )
-            }
-        }
-        Text("Length", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            RunChoices.SEGMENT_COUNTS.forEach { count ->
-                FilterChip(
-                    selected = count == config.segmentCount,
-                    onClick = { actions.setSegmentCount(count) },
-                    label = { Text(count?.let(::barsLabel) ?: "Open") },
-                )
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            ChoiceMenu(content.keySignature.majorName, KeySignature.ALL, { it.majorName }, actions.setKey)
-            ChoiceMenu(content.hands.label, Hands.entries, { it.label }, actions.setHands)
-        }
-        if (content.hands == Hands.BOTH) {
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                Accompaniment.entries.forEach { accompaniment ->
-                    FilterChip(
-                        selected = accompaniment == content.accompaniment,
-                        onClick = { actions.setAccompaniment(accompaniment) },
-                        label = { Text(accompaniment.label) },
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            ChoiceMenu(config.tempoBpm.bpmLabel(), RunChoices.TEMPOS_BPM, { it.bpmLabel() }, actions.setTempo)
-            Spacer(Modifier.weight(1f))
-            Text(
-                "Click while playing",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(8.dp))
-            Switch(
-                checked = config.metronome == MetronomeMode.THROUGHOUT,
-                onCheckedChange = { actions.setMetronome(if (it) MetronomeMode.THROUGHOUT else MetronomeMode.COUNT_IN_ONLY) },
-            )
-        }
-    }
-}
-
-private fun Double.bpmLabel(): String = "${toInt()} bpm"
-
-@Composable
 private fun ThemeMenu(theme: ThemeMode, onTheme: (ThemeMode) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -283,28 +209,6 @@ private fun ThemeMode.label(): String = when (this) {
     ThemeMode.SYSTEM -> "System theme"
     ThemeMode.LIGHT -> "Light theme"
     ThemeMode.DARK -> "Dark theme"
-}
-
-/** An outlined button showing [current] that opens a menu of [choices]. */
-@Composable
-private fun <T> ChoiceMenu(current: String, choices: List<T>, label: (T) -> String, onChoice: (T) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { open = true }) {
-            Text(current)
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            choices.forEach { choice ->
-                DropdownMenuItem(
-                    text = { Text(label(choice)) },
-                    onClick = {
-                        open = false
-                        onChoice(choice)
-                    },
-                )
-            }
-        }
-    }
 }
 
 @Composable

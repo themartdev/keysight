@@ -52,13 +52,17 @@ fun continuityLabel(continuity: Continuity): String = when (continuity) {
 }
 
 /** What the run was: `8 bars   Flash 2 beats   C major   right hand`. */
-fun summaryHeader(config: RunConfig, score: Score, performedSegments: Int): String {
-    val mode = when (config.mode) {
-        VisibilityMode.FLASH -> "Flash ${config.lookaheadBeats.beatsLabel()} ${if (config.lookaheadBeats == 1.0) "beat" else "beats"}"
-        VisibilityMode.READ_AHEAD, VisibilityMode.OPEN_SCORE -> config.mode.label
-    }
-    return listOf(barsLabel(performedSegments), mode, score.keySignature.majorName, handsLabel(score)).joinToString("   ")
+fun summaryHeader(config: RunConfig, score: Score, performedSegments: Int): String =
+    listOf(barsLabel(performedSegments), modeLabel(config), score.keySignature.majorName, handsLabel(score)).joinToString("   ")
+
+/** The mode with its lookahead when the lookahead applies: `Flash 2 beats`, `Read ahead`. */
+fun modeLabel(config: RunConfig): String = when (config.mode) {
+    VisibilityMode.FLASH -> "Flash ${config.lookaheadBeats.beatsLabel()} ${if (config.lookaheadBeats == 1.0) "beat" else "beats"}"
+    VisibilityMode.READ_AHEAD, VisibilityMode.OPEN_SCORE -> config.mode.label
 }
+
+/** "72 bpm". */
+fun tempoLabel(bpm: Double): String = "${bpm.toInt()} bpm"
 
 fun barsLabel(bars: Int): String = if (bars == 1) "1 bar" else "$bars bars"
 

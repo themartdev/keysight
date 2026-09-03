@@ -8,7 +8,10 @@ import dev.simonmartineau.keysight.exercise.ExerciseConfig
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.history.SessionRecord
 import dev.simonmartineau.keysight.history.StoredRun
+import dev.simonmartineau.keysight.history.barsPerDay
+import dev.simonmartineau.keysight.history.sessionDigests
 import dev.simonmartineau.keysight.history.summarise
+import dev.simonmartineau.keysight.history.toDigest
 import dev.simonmartineau.keysight.midi.MidiEvent
 import dev.simonmartineau.keysight.run.AbortReason
 import dev.simonmartineau.keysight.run.MetronomeMode
@@ -32,6 +35,9 @@ private object PreviewHistory {
 
     private const val DAY_MILLIS = 86_400_000L
     private val today = 1_788_400_000_000L
+
+    /** The moment the previews are read at: a quarter of an hour into the current session. */
+    val now = today + 900_000L
 
     private val config = RunConfig(tempoBpm = 80.0, metronome = MetronomeMode.COUNT_IN_ONLY, mode = VisibilityMode.FLASH, lookaheadBeats = 4.0, segmentCount = 4)
     private val thirds = ExerciseConfig.DEFAULT.copy(keySignature = KeySignature(1))
@@ -105,44 +111,47 @@ private object PreviewHistory {
 
 @Composable
 private fun PreviewHistoryScreen(expanded: String?, summary: dev.simonmartineau.keysight.history.SessionSummary?, sessions: List<SessionRecord>? = PreviewHistory.sessions) {
+    val runs = listOf(PreviewHistory.first, PreviewHistory.moved, PreviewHistory.aborted, PreviewHistory.earlier).map { it.toDigest() }
+    val today = java.time.Instant.ofEpochMilli(PreviewHistory.now).atZone(java.time.ZoneOffset.UTC).toLocalDate()
     KeySightTheme {
         HistoryContent(
-            sessions = sessions,
+            sessions = sessions?.let { sessionDigests(it, runs) },
+            days = barsPerDay(runs, HistoryViewModel.CHART_DAYS, today, java.time.ZoneOffset.UTC),
             currentSessionId = PreviewHistory.current.id,
             expanded = expanded,
             summary = summary,
+            now = PreviewHistory.now,
             onToggle = {},
             onOpenRun = {},
-            onBack = {},
         )
     }
 }
 
-@Preview(name = "History, loading", showBackground = true)
+@Preview(name = "History, loading", showBackground = true, widthDp = 764, heightDp = 390)
 @Composable
 private fun HistoryLoadingPreview() = PreviewHistoryScreen(expanded = null, summary = null, sessions = null)
 
-@Preview(name = "History, nothing recorded", showBackground = true)
+@Preview(name = "History, nothing recorded", showBackground = true, widthDp = 764, heightDp = 390)
 @Composable
 private fun HistoryEmptyPreview() = PreviewHistoryScreen(expanded = null, summary = null, sessions = emptyList())
 
-@Preview(name = "History, sessions collapsed", showBackground = true)
+@Preview(name = "History, sessions collapsed", showBackground = true, widthDp = 764, heightDp = 390)
 @Composable
 private fun HistoryCollapsedPreview() = PreviewHistoryScreen(expanded = null, summary = null)
 
-@Preview(name = "History, this session expanded and loading", showBackground = true)
+@Preview(name = "History, this session expanded and loading", showBackground = true, widthDp = 764, heightDp = 390)
 @Composable
 private fun HistoryExpandedLoadingPreview() = PreviewHistoryScreen(expanded = PreviewHistory.current.id, summary = null)
 
-@Preview(name = "History, this session: moves, an aborted run, weakest bars", showBackground = true, heightDp = 900)
+@Preview(name = "History, this session: moves, an aborted run, weakest bars", showBackground = true, widthDp = 764, heightDp = 900)
 @Composable
 private fun HistoryExpandedPreview() = PreviewHistoryScreen(expanded = PreviewHistory.current.id, summary = PreviewHistory.currentSummary)
 
-@Preview(name = "History, this session, dark", showBackground = true, heightDp = 900, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "History, this session, dark", showBackground = true, widthDp = 764, heightDp = 900, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun HistoryExpandedDarkPreview() = PreviewHistoryScreen(expanded = PreviewHistory.current.id, summary = PreviewHistory.currentSummary)
 
-@Preview(name = "History, an earlier session in the open score, clean", showBackground = true)
+@Preview(name = "History, an earlier session in the open score, clean", showBackground = true, widthDp = 764, heightDp = 600)
 @Composable
 private fun HistoryEarlierPreview() = PreviewHistoryScreen(expanded = PreviewHistory.yesterday.id, summary = PreviewHistory.yesterdaySummary)
 

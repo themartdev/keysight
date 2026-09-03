@@ -3,6 +3,8 @@ package dev.simonmartineau.keysight.settings
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import dev.simonmartineau.keysight.data.keySightJson
+import dev.simonmartineau.keysight.difficulty.MusicalLevel
 import dev.simonmartineau.keysight.exercise.Accompaniment
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.score.KeySignature
@@ -23,6 +25,7 @@ class SharedPreferencesContentSettings(private val prefs: SharedPreferences) : C
             putInt(KEY_KEY_SIGNATURE, config.keySignature.fifths)
             putString(KEY_HANDS, config.hands.name)
             putString(KEY_ACCOMPANIMENT, config.accompaniment.name)
+            putString(KEY_LEVEL, keySightJson.encodeToString(MusicalLevel.serializer(), config.level))
         }
         _config.value = config
     }
@@ -34,6 +37,7 @@ class SharedPreferencesContentSettings(private val prefs: SharedPreferences) : C
                 keySignature = KeySignature(prefs.getInt(KEY_KEY_SIGNATURE, defaults.keySignature.fifths)),
                 hands = Hands.valueOf(prefs.getString(KEY_HANDS, null) ?: defaults.hands.name),
                 accompaniment = Accompaniment.valueOf(prefs.getString(KEY_ACCOMPANIMENT, null) ?: defaults.accompaniment.name),
+                level = prefs.getString(KEY_LEVEL, null)?.let { keySightJson.decodeFromString(MusicalLevel.serializer(), it) } ?: defaults.level,
             )
         }.getOrDefault(defaults)
     }
@@ -43,5 +47,6 @@ class SharedPreferencesContentSettings(private val prefs: SharedPreferences) : C
         const val KEY_KEY_SIGNATURE = "keySignature"
         const val KEY_HANDS = "hands"
         const val KEY_ACCOMPANIMENT = "accompaniment"
+        const val KEY_LEVEL = "level"
     }
 }

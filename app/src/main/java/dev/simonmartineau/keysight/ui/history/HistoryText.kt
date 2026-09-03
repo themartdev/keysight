@@ -1,15 +1,21 @@
 package dev.simonmartineau.keysight.ui.history
 
+import dev.simonmartineau.keysight.history.PooledCounts
+import dev.simonmartineau.keysight.history.RunDigest
+import dev.simonmartineau.keysight.history.SessionDigest
 import dev.simonmartineau.keysight.history.SessionRecord
 import dev.simonmartineau.keysight.history.SessionSummary
 import dev.simonmartineau.keysight.run.AbortReason
 import dev.simonmartineau.keysight.ui.practice.abortMessage
 import dev.simonmartineau.keysight.ui.practice.barsLabel
+import dev.simonmartineau.keysight.ui.practice.modeLabel
 import dev.simonmartineau.keysight.ui.practice.percentLabel
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /*
  * The words of the history screen, kept pure so they can be tested.
@@ -58,3 +64,36 @@ fun sessionLevelLines(summary: SessionSummary): List<String> {
         else -> listOf("Started: $start", "Ended: $end")
     }
 }
+
+/**
+ * When a session was, for a row: "Today 18:42", "Yesterday 09:10", then the weekday and time
+ * within the week, then the date. [now] is the moment the row is read at.
+ */
+fun whenLabel(epochMillis: Long, now: Long, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String {
+    val then = Instant.ofEpochMilli(epochMillis).atZone(zone)
+    val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    val time = DateTimeFormatter.ofPattern("HH:mm", locale).format(then)
+    return when (val daysAgo = ChronoUnit.DAYS.between(then.toLocalDate(), today)) {
+        0L -> "Today $time"
+        1L -> "Yesterday $time"
+        in 2L..6L -> "${DateTimeFormatter.ofPattern("EEEE", locale).format(then)} $time"
+        else -> DateTimeFormatter.ofPattern("d MMM yyyy", locale).format(then)
+    }
+}
+
+/** What a run was, for a row: "Read ahead · C major · right hand", the lookahead named in Flash. */
+fun whatLabel(run: RunDigest): String =
+    listOf(modeLabel(run.config), run.keySignature.majorName, run.hands.label.lowercase()).joinToString(" · ")
+
+/** What a session was: its first run's [whatLabel], or "No runs" for one that recorded none. */
+fun whatLabel(session: SessionDigest): String = session.first?.let(::whatLabel) ?: "No runs"
+
+/** "91 · 84" for pitch and rhythm, "91" when no timing was judged, "" when nothing was. */
+fun accuracyLabel(pooled: PooledCounts): String {
+    val pitch = pooled.pitchAccuracy ?: return ""
+    val rhythm = pooled.rhythmAccuracy ?: return percentValue(pitch)
+    return "${percentValue(pitch)} · ${percentValue(rhythm)}"
+}
+
+/** "91", the percentage without its sign: the caption or the column carries the unit. */
+fun percentValue(fraction: Double): String = (fraction * 100).roundToInt().toString()

@@ -18,6 +18,14 @@ class SharedPreferencesRunSettings(private val prefs: SharedPreferences) : RunSe
     private val _config = MutableStateFlow(read())
     override val config: StateFlow<RunConfig> = _config.asStateFlow()
 
+    private val _adaptEnabled = MutableStateFlow(prefs.getBoolean(KEY_ADAPT, false))
+    override val adaptEnabled: StateFlow<Boolean> = _adaptEnabled.asStateFlow()
+
+    override fun setAdaptEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_ADAPT, enabled) }
+        _adaptEnabled.value = enabled
+    }
+
     override fun update(config: RunConfig) {
         prefs.edit {
             putFloat(KEY_TEMPO, config.tempoBpm.toFloat())
@@ -49,6 +57,7 @@ class SharedPreferencesRunSettings(private val prefs: SharedPreferences) : RunSe
         const val KEY_MODE = "mode"
         const val KEY_LOOKAHEAD = "lookaheadBeats"
         const val KEY_SEGMENT_COUNT = "segmentCount"
+        const val KEY_ADAPT = "adaptEnabled"
 
         /** How an open-ended run is stored in the integer segment count. */
         const val OPEN_ENDED = 0

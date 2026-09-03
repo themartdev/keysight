@@ -15,11 +15,13 @@ import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
 import dev.simonmartineau.keysight.run.AbortReason
+import dev.simonmartineau.keysight.run.GeneratedSegmentSource
 import dev.simonmartineau.keysight.run.MetronomeMode
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.RunController
 import dev.simonmartineau.keysight.run.RunState
+import dev.simonmartineau.keysight.run.Segment
 import dev.simonmartineau.keysight.run.SegmentSource
 import dev.simonmartineau.keysight.run.VisibilityMode
 import dev.simonmartineau.keysight.score.KeySignature
@@ -32,6 +34,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
@@ -83,6 +87,11 @@ class PracticeViewModel(
             difficulty.restore()
             load()
         }
+        viewModelScope.launch {
+            combine(settings.config, contentSettings.config, settings.adaptEnabled) { config, content, adapt -> Triple(config, content, adapt) }
+                .drop(1)
+                .collect { reloadIfReady() }
+        }
         viewModelScope.launch { midi.events.collect(controller::onMidi) }
         viewModelScope.launch {
             midi.connection.collect { connection ->
@@ -133,32 +142,50 @@ class PracticeViewModel(
 
     fun setTheme(mode: ThemeMode) = themeSettings.update(mode)
 
-    private fun updateConfig(config: RunConfig) {
-        settings.update(config)
-        reloadIfReady()
-    }
+    private fun updateConfig(config: RunConfig) = settings.update(config)
 
-    private fun updateContent(content: ContentConfig) {
-        contentSettings.update(content)
-        reloadIfReady()
-    }
+    private fun updateContent(content: ContentConfig) = contentSettings.update(content)
 
-    /** Rebuilds the waiting run under the new settings, from the same seed. */
+    /** Rebuilds the waiting run under the new settings, from the same seed; a settings change from any screen lands here. */
     private fun reloadIfReady() {
         if (state.value is RunState.Ready) load()
     }
 
-    /** Generates the run's first segments from the current settings and level and hands it to the controller. */
+    /**
+     * Generates the run's first segments from the current settings and hands them to the
+     * controller. With adaptation on the source is the controller's, read at its level and
+     * moving as the run goes; off, it is the generator at the level the player picked, and
+     * the run's music is exactly what the Play screen said it would be.
+     */
     private fun load() {
         val config = settings.config.value
-        val source = AdaptiveSegmentSource(runSeed, contentSettings.config.value.exerciseConfig, config, difficulty)
-        val segments = source.initial(config.segmentCount ?: SegmentSource.SEGMENTS_AHEAD)
+        val base = contentSettings.config.value.exerciseConfig
+        val count = config.segmentCount ?: SegmentSource.SEGMENTS_AHEAD
+        val source: SegmentSource
+        val segments: List<Segment>
+        if (settings.adaptEnabled.value) {
+            val adaptive = AdaptiveSegmentSource(runSeed, base, config, difficulty)
+            source = adaptive
+            segments = adaptive.initial(count)
+        } else {
+            val fixed = GeneratedSegmentSource(runSeed, base)
+            source = fixed
+            segments = (1..count).map(fixed::segment)
+        }
         _nextRun.value = null
         controller.load(RunContext(segments, config, runSeed), source.takeIf { config.isOpenEnded })
     }
 
-    /** A run ended: its commits are evidence, and the controller decides for the next run. */
+    /**
+     * A run ended: with adaptation on its commits are evidence and the controller decides for
+     * the next run. Off, the controller is not consulted: the commits are stored either way,
+     * so its window is intact when it is switched back on.
+     */
     private fun onRunEnded(state: RunState) {
+        if (!settings.adaptEnabled.value) {
+            _nextRun.value = null
+            return
+        }
         val runConfig = state.context.config
         val evidence = state.committed.map { evidenceOf(runConfig, it.segment, it.result) }
         val decision = difficulty.runEnded(runConfig, contentSettings.config.value.exerciseConfig, evidence)

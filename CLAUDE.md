@@ -68,15 +68,27 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   stored under it when it was not) and `SessionSummary` with `summarise`: runs, bars, the two
   accuracies pooled by their counts, the level at the first and last bar, every `SessionMove`
   as the run summary announced it, and the `WEAKEST_BARS` faulty bars across the session,
-  each naming its run.
-- `settings/` `RunSettings`, `ContentSettings` (key, hands, accompaniment, and the
-  `ExerciseConfig` they make over the generator's defaults) and `ThemeSettings` (system, light,
-  dark), SharedPreferences-backed.
+  each naming its run. `PooledCounts` is the one definition of an accuracy: correct over
+  expected and on-time over matched, a pool being the sum over the sum, never a mean of
+  percentages; the session summary, the week on Home and every table row read it.
+  `RunDigest` is a run as a row or a chart reads it (what it was, its bars, its latest stored
+  judgements, no score or MIDI, and not re-evaluated); `SessionDigest`, `sessionDigests`,
+  `barsPerDay` (calendar days in the player's zone) and `windowStartMillis` are the pure
+  aggregates over digests.
+- `settings/` `RunSettings` (the `RunConfig`, and `adaptEnabled`, off by default),
+  `ContentSettings` (key, hands, accompaniment and the hand-picked `MusicalLevel`, and the
+  `ExerciseConfig` they make over the generator's defaults), `NotesLadder` (the levels a
+  player picks from: the controller's own walk up from the default, one dimension a rung,
+  so a level picked by hand is one the controller could have reached) and `ThemeSettings`
+  (system, light, dark), SharedPreferences-backed.
 - `data/` Room: entities (`runs` with the run seed, `segments` with their origin columns,
   `midi_events` by run, `evaluation_results` by segment and evaluator version, `sessions`,
   `difficulty_state`, one row of JSON), `RunDao` (with `recentCommitted`, the last committed
   segments across runs with the configurations they were played under), `SessionDao` and
-  `DifficultyDao`, `KeySightDatabase` (schema version 5), `Migrations.kt` (2 to 3 turns every
+  `DifficultyDao`, `RunDao`'s digest queries (`observeDigestsSince` and
+  `observeLatestEvaluationsSince`, which `RoomRunHistory.runDigests` combines; the SQL is
+  covered by the instrumented `RoomRunHistoryTest`, the pooling by JVM tests),
+  `KeySightDatabase` (schema version 5), `Migrations.kt` (2 to 3 turns every
   attempt row into a run with one segment per measure, reading both the `FlashConfig` and the
   `RunConfig` snapshot shapes through the pure `LegacyAttempts.kt`; 3 to 4 adds the seed to
   runs and rebuilds segments with a nullable exercise id and the generator columns; 4 to 5
@@ -90,15 +102,43 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `BeamElement`s over eighths that share a beat and rests derived from the silences on each
   staff (`restsFilling` is the splitting rule), `Mask` (which score time is hidden), and
   `noteMarks`, the one place evaluation outcomes meet notation.
-- `di/` `AppContainer`. `Screen` and `MainActivity` are the navigation: a sealed state,
-  practice to history to a run's page and back, no library. `ui/notation/` the Compose Canvas
+- `di/` `AppContainer`. `Screen` and `MainActivity` are the navigation, no library: a sealed
+  state of six cases (`Home`, the launch destination; `Play`; `Settings`; `Run`, the practice
+  screen, which remembers whether Home or Play started it; `History`; `RunDetail`), each
+  knowing its own way `back` (Home leaves the app, the rail's pages return to Home, a run to
+  where it started, a detail to history) and its rail `Tab`. `ui/shell/` is the frame:
+  `AppFrame` draws `AppRail` (Home, Play, History, Settings pinned to the bottom) beside every
+  screen but a run, which is full-bleed; `MidiStatus` is the keyboard as a dot and a line.
+  `ui/home/` the launcher: `HomeData` (the `Dashboard` pooled from digests, the greeting, the
+  resume lines and the quick-start chips, pure), `HomeViewModel`, `HomeScreen`. `ui/play/`
+  the settings as a preset list: `PlayViewModel` (every choice written as it is made, the
+  level the next run reads at, the last run in the mode), `PlayScreen` (the preset pane, the
+  `ParamGrid` of key, hands, length, tempo, click and the lookahead in Flash or the notes
+  otherwise, both when the level is picked by hand in Flash), `Picker` (a paper panel of
+  rows, no Material sheet) and `ScorePreview` (one system of the first bars from
+  `previewSeed`, engraved by `ScoreLayoutEngine` and drawn with `drawSystem`; decorative,
+  the run draws its own seed). `ui/settings/` keyboard, theme, the adapt switch, raw MIDI.
+  `ui/notation/` the Compose Canvas
   renderer (`RunPage`, the two systems around the beat; `RunSummaryPage`, every system in a
   scroll; `drawPage`, `drawSystem`) that draws a `PageLayout` with the bundled Bravura font.
-  `ui/practice/` the practice screen, its view model, `RunSummaryContent` (the summary of one
+  `ui/practice/` the run screen (the `Run` destination, full-bleed, reached from Home or
+  Play; its settings live on Play), its view model, `RunSummaryContent` (the summary of one
   run, shown when a run ends and again from history) and `PracticePreviews` with one preview
-  per screen state. `ui/history/` the history screen (sessions newest first, the practice
-  screen's own expanded on arrival as the session summary, then its runs), the run page, the
-  thin `HistoryViewModel`, `HistoryText` and `HistoryPreviews`.
+  per screen state. `ui/history/` the history screen (a fortnight of bars per day, then the
+  sessions as `SessionRow`s newest first, the practice screen's own expanded on arrival; a
+  one-run session opens its run, any other expands to its summary and its runs), the run
+  page, `HistoryViewModel` (digests for the table, the summary for the expanded one),
+  `HistoryText` (the row words, shared with Home and Play) and `HistoryPreviews`. `ui/theme/` the design system
+  of `docs/design.md` in code: `Color.kt` (ink, paper and the judgement colours, nothing
+  else), `Palette` (one theme's surfaces and the alpha ramp over ink that stands in for every
+  grey, `MaterialTheme.palette`), `Type.kt` (Work Sans and the `TypeScale` by role,
+  `MaterialTheme.type`; the Material roles are filled from it only so a Material component
+  left on a screen still sets the font), `Theme.kt` (the Material scheme filled from the
+  palette, so notation's `onSurface` is ink and its `primary` cursor the accent),
+  `Components.kt` (the slab `PrimaryButton`, the keycap `QuietButton` and `Chip`,
+  `SectionHeading`, `DoubleRule`, `StatNumber`, `SessionRow`, `Sparkbars`, `ParamGrid` and
+  the square `Switch`, plus `Metrics`) and `ComponentPreviews` with one preview each.
+- `app/src/main/res/font/` holds Work Sans 400, 500 and 600 (OFL), the app's one text face.
 - `app/src/main/res/font/bravura.otf` is Bravura 1.482 (SMuFL, OFL); its licence ships in
   `app/src/main/assets/licenses/`. Glyph metrics are the table in `BravuraMetrics`, checked
   against the font file by `BravuraMetricsTest`.
@@ -115,7 +155,8 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   every other.
 
 Not built yet: the generator dimensions after accidentals (chords, other meters,
-syncopation); the plan's round ladder covers them in order.
+syncopation); the plan's round ladder covers them in order. The technique modes Play lists
+(Hanon, scales and arpeggios, chords) and the rail's icon set (the marks are plain squares).
 
 ## Build and test
 
@@ -144,6 +185,11 @@ from this environment.
 ## Conventions
 
 - Kotlin, Jetpack Compose, coroutines and Flow, Room. Manual DI through `AppContainer`.
+- `docs/design.md` is binding for every visual decision. Chrome is ink and paper: a colour is
+  a `Palette` token or a step of its alpha ramp, and green, red and amber reach the screen
+  only through `outcomeColors`. No Material elevation or blurred shadow anywhere; separation
+  is a hairline or space, and the one radius is 4dp. Text is a `TypeScale` role, nothing
+  below 11sp; the uppercase roles are uppercased by the component, not the caller.
 - The Kotlin, Compose-compiler, serialization-plugin and KSP versions are pinned to whatever AGP
   embeds. Never bump one of them alone; they move with AGP or not at all.
 - New logic goes in a JVM unit test unless it genuinely needs a device.
@@ -212,7 +258,20 @@ from this environment.
   one row; the window is derived from stored evaluations, so both survive a restart. A new
   dimension is a `Dimension` entry, its `Ladder` and its case in `DifficultyController.step`.
   What moved is always on screen: the Ready line names the level, the summary names every bar
-  the level changed at and the move for the next run, and the lookahead chip moves.
+  the level changed at and the move for the next run, and the lookahead cell on Play moves.
+  Adaptation is opt-in: `RunSettings.adaptEnabled` is off by default, and off, a run reads at
+  the level the player picked on Play (`ContentConfig.level`, from `NotesLadder`) through a
+  plain `GeneratedSegmentSource`, the controller is not consulted when the run ends, and the
+  Notes cell is the player's; the commits are stored either way, so the controller's window
+  is intact when it is switched on. On, `PracticeViewModel` wires the controller exactly as
+  before. `difficulty/` knows nothing of the switch.
+- Every screen but the run reads history through digests, cheap enough for every run there
+  is, and shows an accuracy only where a bar was judged: no zeroed chart, no 0% for no data.
+  Home's week is the last seven calendar days in the player's zone, History's chart the last
+  fourteen. A session is still opened by the first run the practice screen records and
+  closed when its view model is cleared; the practice view model outlives the run screen, so
+  a session spans the app's foreground life, and any screen that writes a setting is
+  honoured by the waiting run, which rebuilds from the same seed as the settings change.
 - A segment is committed once, one beat after it ends, and never revised: a commit sees only
   the events that had arrived by then, so a live run and a replay from history agree. Every
   played note gets exactly one committed outcome (a note that arrives after its bar was judged
@@ -254,8 +313,9 @@ from this environment.
   current version only: `HistoryReader` re-evaluates a run whose stored judgement is older
   from its segments and raw MIDI as it is read, every segment of a completed run and only the
   committed ones of an aborted run, and stores the result as new rows, the old ones kept. A
-  session is the practice screen's lifetime, opened by the first run it records and closed
-  when the screen is left; the session summary is that session, pooled: every number on it
+  session is opened by the first run the practice screen records and closed when its view
+  model is cleared, which is the app's foreground life since that view model outlives the
+  run screen; the session summary is that session, pooled: every number on it
   is the sum of the counts behind the run rows' score lines, and every remark on it names a
   run of the list, which opens that run's page with its marks.
 - `RunMachine` is a pure reducer, commits included: its deadlines while performing are the

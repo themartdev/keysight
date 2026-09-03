@@ -12,7 +12,10 @@ import dev.simonmartineau.keysight.difficulty.SegmentEvidence
 import dev.simonmartineau.keysight.difficulty.evidenceOf
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.exercise.ExerciseConfig
+import dev.simonmartineau.keysight.data.dao.RunDigestRow
+import dev.simonmartineau.keysight.history.RunDigest
 import dev.simonmartineau.keysight.history.SessionRecord
+import dev.simonmartineau.keysight.history.handsOf
 import dev.simonmartineau.keysight.history.StoredRun
 import dev.simonmartineau.keysight.midi.MidiEvent
 import dev.simonmartineau.keysight.run.RunConfig
@@ -88,6 +91,29 @@ fun RunEntity.toRecord(segments: List<SegmentEntity>, events: List<MidiEventEnti
 fun RunEntity.toStoredRun(segments: List<SegmentEntity>, events: List<MidiEventEntity>, evaluations: List<EvaluationResultEntity>): StoredRun? =
     try {
         StoredRun(toRecord(segments, events), evaluations.sortedBy { it.segmentId.substringAfterLast(':').toInt() }.map { it.toResult() })
+    } catch (e: IllegalArgumentException) {
+        null
+    } catch (e: IllegalStateException) {
+        null
+    }
+
+/**
+ * A run digest from its row and the latest judgement of each of its segments in order, or
+ * null when the row cannot be read, as [toStoredRun] leaves an unreadable run out.
+ */
+fun RunDigestRow.toDigest(evaluations: List<EvaluationResultEntity>): RunDigest? =
+    try {
+        val score = keySightJson.decodeFromString(Score.serializer(), firstScoreJson ?: error("run $id has no segment"))
+        RunDigest(
+            id = id,
+            sessionId = sessionId,
+            startedAtEpochMillis = startedAtEpochMillis,
+            config = keySightJson.decodeFromString(RunConfig.serializer(), configJson),
+            keySignature = score.keySignature,
+            hands = handsOf(score),
+            barCount = bars,
+            evaluations = evaluations.map { it.toResult() },
+        )
     } catch (e: IllegalArgumentException) {
         null
     } catch (e: IllegalStateException) {

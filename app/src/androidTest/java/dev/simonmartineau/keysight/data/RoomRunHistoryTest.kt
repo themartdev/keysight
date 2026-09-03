@@ -20,6 +20,7 @@ import dev.simonmartineau.keysight.score.SpelledPitch
 import dev.simonmartineau.keysight.score.Step
 import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -114,5 +115,26 @@ class RoomRunHistoryTest {
         assertEquals(1, dao.latestEvaluationsForRun("run-2").size)
         assertNull(dao.latestEvaluationFor("run-2:2"))
         assertEquals(2, dao.midiEventsFor("run-2").size)
+    }
+
+    @Test
+    fun digestsCarryEveryRunSinceWithItsBarsAndLatestJudgements() = runTest {
+        val session = history.startSession()
+        val completed = record("run-1", session)
+        val aborted = record("run-2", session, RunStatus.ABORTED, AbortReason.BACKGROUNDED).copy(startedAtEpochMillis = 50)
+        val judged = PerformanceEvaluator.evaluate(completed.score, run.timeline, completed.startedAtNanos, completed.events).segments
+        history.record(completed, judged)
+        history.record(aborted, judged.take(1))
+        history.addEvaluations("run-1", judged.map { it.copy(evaluatorVersion = it.evaluatorVersion + 1) })
+
+        val all = history.runDigests(0L).first()
+        assertEquals(listOf("run-1", "run-2"), all.map { it.id })
+        assertEquals(2, all[0].barCount)
+        assertEquals(2, all[0].evaluations.size)
+        assertEquals(PerformanceEvaluator.EVALUATOR_VERSION + 1, all[0].evaluations[0].evaluatorVersion)
+        assertEquals(1, all[1].evaluations.size)
+        assertEquals(KeySignature.C_MAJOR, all[0].keySignature)
+
+        assertEquals(listOf("run-2"), history.runDigests(50L).first().map { it.id })
     }
 }

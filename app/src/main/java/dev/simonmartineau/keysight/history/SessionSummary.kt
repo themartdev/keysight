@@ -86,11 +86,14 @@ data class SessionSummary(
     /** Bars played, the bar an abort landed in included: the count each run's header shows. */
     val barCount: Int get() = runs.sumOf { it.record.segments.size }
 
+    /** The counts as one pool: the arithmetic of every accuracy is [PooledCounts]'s. */
+    val pooled: PooledCounts get() = PooledCounts(correctCount, expectedCount, onTimeCount, matchedCount)
+
     /** Null when no bar was judged. */
-    val pitchAccuracy: Double? get() = if (expectedCount == 0) null else correctCount.toDouble() / expectedCount
+    val pitchAccuracy: Double? get() = pooled.pitchAccuracy
 
     /** Null when no note matched. */
-    val rhythmAccuracy: Double? get() = if (matchedCount == 0) null else onTimeCount.toDouble() / matchedCount
+    val rhythmAccuracy: Double? get() = pooled.rhythmAccuracy
 }
 
 fun summarise(session: SessionRecord, runs: List<StoredRun>): SessionSummary {
@@ -118,13 +121,14 @@ fun summarise(session: SessionRecord, runs: List<StoredRun>): SessionSummary {
     val weakest = runs.flatMapIndexed { index, run ->
         run.evaluations.mapIndexedNotNull { bar, result -> if (result.hasFault) SessionBar(index + 1, run.record.id, bar + 1, result) else null }
     }.sortedWith(compareBy<SessionBar, EvaluationResult>(RunEvaluation.WEAKNESS) { it.result }.thenBy { it.runIndex }.thenBy { it.bar }).take(WEAKEST_BARS)
+    val pooled = PooledCounts.of(results)
     return SessionSummary(
         session = session,
         runs = runs,
-        correctCount = results.sumOf { it.pitch.correctCount },
-        expectedCount = results.sumOf { it.pitch.expectedCount },
-        onTimeCount = results.sumOf { it.rhythm?.onTimeCount ?: 0 },
-        matchedCount = results.sumOf { it.rhythm?.matchedCount ?: 0 },
+        correctCount = pooled.correctCount,
+        expectedCount = pooled.expectedCount,
+        onTimeCount = pooled.onTimeCount,
+        matchedCount = pooled.matchedCount,
         start = runs.firstOrNull()?.record?.let { SessionLevel.of(it.config, it.segments.first()) },
         end = runs.lastOrNull()?.record?.let { SessionLevel.of(it.config, it.segments.last()) },
         moves = moves,
