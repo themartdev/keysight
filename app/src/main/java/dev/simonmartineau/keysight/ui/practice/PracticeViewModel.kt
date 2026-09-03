@@ -26,6 +26,8 @@ import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.settings.ContentConfig
 import dev.simonmartineau.keysight.settings.ContentSettings
 import dev.simonmartineau.keysight.settings.RunSettings
+import dev.simonmartineau.keysight.settings.ThemeMode
+import dev.simonmartineau.keysight.settings.ThemeSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +53,7 @@ class PracticeViewModel(
     private val midi: MidiDeviceManager,
     private val settings: RunSettings,
     private val contentSettings: ContentSettings,
+    private val themeSettings: ThemeSettings,
     private val difficulty: DifficultyTracker,
     controllerFactory: (CoroutineScope, onRunEnded: (RunState) -> Unit) -> RunController,
     private val random: Random = Random.Default,
@@ -62,6 +65,7 @@ class PracticeViewModel(
     val connection: StateFlow<MidiConnection> = midi.connection
     val config: StateFlow<RunConfig> = settings.config
     val content: StateFlow<ContentConfig> = contentSettings.config
+    val theme: StateFlow<ThemeMode> = themeSettings.mode
 
     /** The session this screen's runs are recorded into, once the first has been. */
     val sessionId: StateFlow<String?> = controller.sessionId
@@ -127,6 +131,8 @@ class PracticeViewModel(
 
     fun setAccompaniment(accompaniment: Accompaniment) = updateContent(contentSettings.config.value.copy(accompaniment = accompaniment))
 
+    fun setTheme(mode: ThemeMode) = themeSettings.update(mode)
+
     private fun updateConfig(config: RunConfig) {
         settings.update(config)
         reloadIfReady()
@@ -172,6 +178,7 @@ class PracticeViewModel(
                     midi = container.midiDeviceManager,
                     settings = container.runSettings,
                     contentSettings = container.contentSettings,
+                    themeSettings = container.themeSettings,
                     difficulty = container.difficultyTracker(),
                     controllerFactory = container::runController,
                 )

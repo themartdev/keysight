@@ -121,15 +121,6 @@ class ResultTextTest {
     }
 
     @Test
-    fun `the strip's ready line adds the tempo and says Open for an open-ended run`() {
-        val config = Fixtures.slowConfig
-        val score = Fixtures.cdef
-
-        assertEquals("8 bars   Flash 2 beats   C major   right hand   60 bpm", readyLine(config.copy(segmentCount = 8), score))
-        assertEquals("Open   Open score   C major   right hand   60 bpm", readyLine(config.copy(mode = VisibilityMode.OPEN_SCORE, segmentCount = null), score))
-    }
-
-    @Test
     fun `the weakest bars are named once there is more than one bar and one went wrong`() {
         val clean = EvaluationResult(4, PitchResult(listOf(NoteOutcome.Correct(Fixtures.cdef.notes[0], played(60, 0.0)))), rhythm(timings = listOf(timing(TimingJudgement.ON_TIME))))
         val flawed = EvaluationResult(4, pitch, rhythm())

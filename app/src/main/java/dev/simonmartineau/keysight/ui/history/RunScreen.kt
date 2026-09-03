@@ -15,12 +15,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.simonmartineau.keysight.di.AppContainer
 import dev.simonmartineau.keysight.ui.practice.RunSummaryContent
-import dev.simonmartineau.keysight.ui.practice.SummaryLine
-import dev.simonmartineau.keysight.ui.practice.notesLine
-import dev.simonmartineau.keysight.ui.practice.scoreLine
-import dev.simonmartineau.keysight.ui.practice.summaryHeader
-import dev.simonmartineau.keysight.ui.practice.summaryRemarks
-import dev.simonmartineau.keysight.ui.shell.ScreenScaffold
 
 /** A stored run's page: the practice summary of that run, at the current evaluator version, the score open. */
 @Composable
@@ -49,16 +43,12 @@ fun RunContent(page: RunPageState, onBack: () -> Unit) {
             }
             is RunPageState.Loaded -> {
                 val record = page.run.record
-                val evaluation = page.run.evaluation
                 RunSummaryContent(
+                    config = record.config,
                     score = record.score,
-                    evaluation = evaluation,
-                    linesAbove = listOf(
-                        SummaryLine(summaryHeader(record.config, record.score, record.segments.size)),
-                        SummaryLine(notesLine(evaluation.pitch), headline = true),
-                        SummaryLine(scoreLine(evaluation.pitch, evaluation.rhythm)),
-                    ),
-                    linesBelow = summaryRemarks(evaluation, record.segments) + listOfNotNull(record.abortReason?.let(::stoppedLine)),
+                    segments = record.segments,
+                    evaluation = page.run.evaluation,
+                    linesAfter = listOfNotNull(record.abortReason?.let(::stoppedLine)),
                 )
             }
         }
