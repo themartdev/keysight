@@ -15,10 +15,12 @@ The engineering view is split into two documents:
 
 ## Status
 
-Scaffolding complete.
-The app launches, the build is green, and the canonical data model, the attempt timeline and the
-practice-history schema are in place with tests.
-No MIDI, no metronome, no notation and no scoring yet: those are Milestones 0 to 2.
+Scaffolding complete, no product code written.
+
+The app builds in debug and release, launches to a placeholder screen, and the Compose, Room, KSP
+and serialization toolchain is wired and verified.
+The domain model, MIDI, metronome, notation and scoring are all still ahead: see
+[`docs/implementation-plan.md`](docs/implementation-plan.md).
 
 ## Building
 
@@ -26,13 +28,24 @@ The project uses Gradle 9.6 with AGP 9.4, which compiles Kotlin itself (no separ
 The Gradle daemon runs on a Java 25 toolchain that Gradle provisions automatically.
 
 ```bash
-export ANDROID_HOME="$HOME/Android/Sdk"
-
 ./gradlew :app:assembleDebug        # build
 ./gradlew :app:testDebugUnitTest    # unit tests, no device needed
 ./gradlew :app:connectedDebugAndroidTest   # instrumented tests, needs a device
 ./gradlew :app:lintDebug            # lint
 ```
 
-The Android SDK location comes from `ANDROID_HOME` rather than `local.properties`, so the same
-checkout builds from WSL and from Android Studio on Windows.
+### One checkout, two SDKs
+
+The checkout is shared between Android Studio on Windows and a WSL shell, which need different
+Android SDK paths out of the same gitignored `local.properties`.
+
+AGP resolves the SDK from `sdk.dir` first, and only when that path does not exist does it fall
+back to the `android.home` system property and then to `ANDROID_HOME`.
+So `sdk.dir` holds the Windows path for Android Studio, and WSL builds pick up the Linux SDK from
+`systemProp.android.home` in `~/.gradle/gradle.properties`, which is a WSL-only Gradle home.
+Building from WSL prints a "Directory does not exist" warning for `sdk.dir`.
+That warning is expected: do not fix it by editing `sdk.dir`, that breaks Android Studio.
+
+Do not run an Android Studio sync on Windows and a Gradle build in WSL at the same time.
+Two build systems writing `app/build` on the same directory produce intermittent lock and I/O
+failures.
