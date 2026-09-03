@@ -7,20 +7,19 @@ begins, and the player performs it from memory while the app captures MIDI and s
 Shortening the preview window is the primary difficulty control, and it is modelled separately
 from how hard the notation itself is.
 
-The product direction, scope and rationale live in [`docs/product-plan.md`](docs/product-plan.md).
-The engineering view is split into two documents:
-
-- [`docs/architecture.md`](docs/architecture.md) - how the app is put together and why.
-- [`docs/implementation-plan.md`](docs/implementation-plan.md) - what gets built, in what order.
+The product direction, scope and rationale live in the product plan kept outside the repo.
+`CLAUDE.md` describes the package layout and the engineering rules.
 
 ## Status
 
-Scaffolding complete, no product code written.
-
-The app builds in debug and release, launches to a placeholder screen, and the Compose, Room, KSP
-and serialization toolchain is wired and verified.
-The domain model, MIDI, metronome, notation and scoring are all still ahead: see
-[`docs/implementation-plan.md`](docs/implementation-plan.md).
+The complete Flash Sight Reading loop is implemented: a USB MIDI keyboard connects with hot
+plug, an `AudioTrack` metronome counts in and anchors the attempt clock, the passage is shown
+and hidden on the timeline, the performance is captured, scored for pitch, stored with its raw
+MIDI, and the next exercise follows.
+Eighteen one-measure exercises are bundled.
+Notation is a note-name placeholder; staff engraving is the next round, along with difficulty
+adaptation.
+The JVM test suite covers everything except the Android shells, which are verified on a device.
 
 ## Building
 

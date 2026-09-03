@@ -11,5 +11,6 @@ class KeySightApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        container.midiDeviceManager.start()
     }
 }

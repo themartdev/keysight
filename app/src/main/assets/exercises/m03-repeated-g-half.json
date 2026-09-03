@@ -1,0 +1,42 @@
+{
+  "id": "m03-repeated-g-half",
+  "score": {
+    "timeSignature": {
+      "beatsPerMeasure": 4,
+      "beatUnit": 4
+    },
+    "clef": "TREBLE",
+    "keySignature": 0,
+    "measureCount": 1,
+    "notes": [
+      {
+        "id": "n1",
+        "spelling": {
+          "step": "G",
+          "octave": 4
+        },
+        "onset": 0,
+        "duration": 960
+      },
+      {
+        "id": "n2",
+        "spelling": {
+          "step": "G",
+          "octave": 4
+        },
+        "onset": 960,
+        "duration": 960
+      },
+      {
+        "id": "n3",
+        "spelling": {
+          "step": "G",
+          "octave": 4
+        },
+        "onset": 1920,
+        "duration": 1920
+      }
+    ]
+  },
+  "musicalDifficulty": 1
+}

@@ -1,9 +1,32 @@
 # KeySight
 
-Android sight-reading trainer built around the Flash Sight Reading mechanic.
-Read [`docs/architecture.md`](docs/architecture.md) before changing structure and
-[`docs/implementation-plan.md`](docs/implementation-plan.md) before adding a feature.
-The product reasoning is in [`docs/product-plan.md`](docs/product-plan.md).
+Android sight-reading trainer built around the Flash Sight Reading mechanic: a short passage is
+shown during a metronome count-in, hidden exactly when the performance starts, and the MIDI
+performance is scored.
+The product plan lives outside the repo at `~/adaptive-sight-reading.md`.
+
+## Layout
+
+One module, packages by concern, all under `dev.simonmartineau.keysight`:
+
+- `score/` the canonical music model: `Ticks`, `Pitch`, `SpelledPitch`, `ScoreNote`, `Score`.
+- `exercise/` an `Exercise` wraps a `Score`; content is bundled, not stored.
+- `midi/` `MidiEvent` (raw bytes plus timestamp), `MidiMessage` (decoded), `MidiParser`.
+- `timing/` `MonotonicClock` and `AttemptTimeline`, every scheduled instant of one attempt.
+- `attempt/` `FlashConfig`, `AttemptState`, `AttemptEvent`, the pure `AttemptMachine` reducer,
+  `AttemptController` (the coroutine that drives it), `AttemptHistory` and `AttemptRecord`.
+- `audio/` `ClickSynth` and `ClickTrack` (pure PCM on a frame line), `Metronome`, and
+  `AudioTrackMetronome`, which anchors beat 0 to the audio timestamp.
+- `evaluation/` `PlayedNotes` (MIDI to notes on the beat line), `PitchAlignment`,
+  `PerformanceEvaluator` with `EVALUATOR_VERSION`.
+- `settings/` `FlashSettings`, SharedPreferences-backed.
+- `data/` Room: entities, DAOs, `KeySightDatabase`, `RoomAttemptHistory`, and the pure mappers.
+- `di/` `AppContainer`. `ui/practice/` the one screen, its view model, and the note-name
+  placeholder that stands in for notation.
+- `app/src/main/assets/exercises/` the content pack, one JSON `Exercise` per file, validated
+  by `BundledExercisesTest` on every unit test run.
+
+Not built yet: staff notation, difficulty adaptation, session summaries.
 
 ## Build and test
 
@@ -35,12 +58,25 @@ from this environment.
 - The Kotlin, Compose-compiler, serialization-plugin and KSP versions are pinned to whatever AGP
   embeds. Never bump one of them alone; they move with AGP or not at all.
 - New logic goes in a JVM unit test unless it genuinely needs a device.
-  There are no tests yet; the first piece of domain logic should arrive with them.
+  `score`, `midi`, `timing`, `attempt`, `evaluation` and the data mappers have no Android
+  imports; keep it that way so they stay testable on the JVM.
+- Musical time in the score is integer `Ticks` (960 per quarter note), never a double.
+  Doubles are for wall-clock beats in `FlashConfig` and `AttemptTimeline` only.
 - Anything time-related reads from `MonotonicClock` and computes positions from absolute beats.
   Never use `delay` as a source of musical truth, and never introduce a second timer.
 - The evaluator sees `ScoreNote` and `MidiEvent`, never notation. Keep it that way.
-- Raw MIDI is never discarded or overwritten; evaluations are versioned so attempts can be
-  re-scored later.
-- Room and KSP are wired but unused until the first `@Entity`. Schema export is configured to
-  `app/schemas`; check that directory in, and add a migration plus a migration test with every
-  schema change after version 1.
+- Raw MIDI is never discarded or overwritten: `midi_events` rows are the three raw bytes and a
+  timestamp, and attempts snapshot their score and config so history is re-evaluable on its
+  own. Evaluations are keyed by `(attemptId, evaluatorVersion)`; bump `EVALUATOR_VERSION`
+  whenever a judgement would change.
+- `AttemptMachine` is a pure reducer. `AttemptController` wakes up only at
+  `AttemptMachine.nextDeadlineNanos`, and whether a MIDI event is captured is decided by its own
+  timestamp, not by the state at delivery. All state changes happen on the main dispatcher.
+- Beat 0 is when the first click reaches the listener: `AudioTrackMetronome` reads
+  `AudioTrack.getTimestamp` and returns that instant as the attempt start. Clicks are placed by
+  sample position in `ClickTrack`, never by sleeping. Visuals that follow the beat read the
+  frame time in `withFrameNanos` and derive the beat from the timeline; they do not tick.
+- Nothing device-facing is trusted until it has run on a phone: the metronome anchor, MIDI hot
+  plug and the practice screen are verified from Android Studio, not here.
+- Schema export goes to `app/schemas`, which is checked in. Add a migration plus a migration
+  test with every schema change after version 1.
