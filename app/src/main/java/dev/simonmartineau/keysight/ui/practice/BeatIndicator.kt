@@ -8,37 +8,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import dev.simonmartineau.keysight.timing.AttemptTimeline
-import kotlin.math.floor
 
 /**
- * One dot per beat of the measure, lit on the beat the metronome is clicking: the count-in,
- * and the performance too when the metronome plays through it.
- *
- * It does not tick. Every frame it reads the frame time, which is on the same
- * `System.nanoTime` base as the attempt clock, and derives the beat from the timeline, so
- * it can never drift from the metronome.
+ * One dot per beat of the measure, the [lit] one on the beat the metronome is clicking, or
+ * none when [lit] is out of range. It does not tick: the stage that owns the frame loop tells
+ * it which beat it is on, derived from the same timeline as the metronome.
  */
 @Composable
-fun BeatIndicator(timeline: AttemptTimeline, startedAtNanos: Long, modifier: Modifier = Modifier) {
-    var beat by remember(startedAtNanos) { mutableIntStateOf(-1) }
-    LaunchedEffect(startedAtNanos) {
-        while (true) {
-            withFrameNanos { frameNanos ->
-                beat = floor(timeline.beatAtNanos(frameNanos - startedAtNanos)).toInt()
-            }
-        }
-    }
-    val beatsPerMeasure = timeline.timeSignature.beatsPerMeasure
-    val lit = if (beat >= 0 && beat < timeline.clickEndBeat) beat % beatsPerMeasure else -1
+fun BeatIndicator(beatsPerMeasure: Int, lit: Int, modifier: Modifier = Modifier) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         repeat(beatsPerMeasure) { index ->
             val active = index == lit

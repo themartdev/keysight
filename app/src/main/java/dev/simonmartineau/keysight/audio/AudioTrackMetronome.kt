@@ -8,7 +8,7 @@ import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.os.Process
 import android.util.Log
-import dev.simonmartineau.keysight.timing.AttemptTimeline
+import dev.simonmartineau.keysight.timing.RunTimeline
 import dev.simonmartineau.keysight.timing.MonotonicClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -22,7 +22,7 @@ import kotlinx.coroutines.withContext
  * The stream starts with [PRE_ROLL_MS] of silence, then the click track. Once the track is
  * playing, `AudioTrack.getTimestamp` says which frame was at the output at which
  * `System.nanoTime`, and from that the instant the first click frame reaches the output is
- * computed and returned as the attempt start. Output latency therefore never enters the
+ * computed and returned as the run start. Output latency therefore never enters the
  * count-in: beat 0 is when the player hears it.
  *
  * If no timestamp arrives before the pre-roll runs out, the fallback anchor is the `play()`
@@ -39,7 +39,7 @@ class AudioTrackMetronome(
 
     private var playback: Playback? = null
 
-    override suspend fun start(timeline: AttemptTimeline): MetronomeStart = withContext(ioDispatcher) {
+    override suspend fun start(timeline: RunTimeline): MetronomeStart = withContext(ioDispatcher) {
         stop()
         val sampleRate = AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC)
         val track = ClickTrack(sampleRate, timeline)

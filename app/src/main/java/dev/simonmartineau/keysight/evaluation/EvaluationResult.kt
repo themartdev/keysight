@@ -40,9 +40,9 @@ data class PitchResult(val outcomes: List<NoteOutcome>) {
 }
 
 /**
- * The evaluated outcome of one attempt.
+ * The evaluated outcome of one run.
  *
- * [evaluatorVersion] travels with the result so that attempts scored by an older evaluator can
+ * [evaluatorVersion] travels with the result so that runs scored by an older evaluator can
  * be recognised and re-scored from their retained MIDI. [rhythm] is null only for results
  * stored by evaluator version 1, which did not score it.
  */

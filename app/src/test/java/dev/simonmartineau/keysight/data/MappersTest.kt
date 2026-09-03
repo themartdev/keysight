@@ -2,13 +2,14 @@ package dev.simonmartineau.keysight.data
 
 import dev.simonmartineau.keysight.Fixtures
 import dev.simonmartineau.keysight.SECOND_NANOS
-import dev.simonmartineau.keysight.attempt.AbortReason
-import dev.simonmartineau.keysight.attempt.AttemptRecord
-import dev.simonmartineau.keysight.attempt.AttemptStatus
-import dev.simonmartineau.keysight.attempt.FlashConfig
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.evaluation.PerformanceEvaluator
 import dev.simonmartineau.keysight.midi.MidiEvent
+import dev.simonmartineau.keysight.run.AbortReason
+import dev.simonmartineau.keysight.run.RunConfig
+import dev.simonmartineau.keysight.run.RunRecord
+import dev.simonmartineau.keysight.run.RunStatus
+import dev.simonmartineau.keysight.run.VisibilityMode
 import dev.simonmartineau.keysight.score.Pitch
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -24,21 +25,21 @@ class MappersTest {
         MidiEvent(6 * SECOND_NANOS, 0xC0, 12, 0),
     )
 
-    private val record = AttemptRecord(
-        id = "attempt-1",
+    private val record = RunRecord(
+        id = "run-1",
         sessionId = "session-1",
-        exerciseId = Fixtures.exercise.id,
+        exerciseIds = listOf("m01", "m07", "m01"),
         startedAtEpochMillis = 1_700_000_000_000,
         startedAtNanos = 0,
-        status = AttemptStatus.COMPLETED,
+        status = RunStatus.COMPLETED,
         abortReason = null,
         config = Fixtures.slowConfig,
-        score = Fixtures.cdef,
+        score = Fixtures.slowScore,
         events = events,
     )
 
     @Test
-    fun `an attempt round-trips through its rows`() {
+    fun `a run round-trips through its attempt rows`() {
         val entity = record.toEntity()
         val rows = record.toMidiEventEntities()
 
@@ -49,36 +50,45 @@ class MappersTest {
     fun `queryable columns mirror the snapshot`() {
         val entity = record.toEntity()
 
+        assertEquals("m01,m07,m01", entity.exerciseId)
         assertEquals(60.0, entity.tempoBpm)
         assertEquals(2.0, entity.previewDurationBeats)
-        assertEquals(Fixtures.slowConfig, keySightJson.decodeFromString(FlashConfig.serializer(), entity.configJson))
-        assertTrue(entity.scoreJson.contains("\"measureCount\":1"))
+        assertEquals(Fixtures.slowConfig, keySightJson.decodeFromString(RunConfig.serializer(), entity.configJson))
+        assertTrue(entity.scoreJson.contains("\"measureCount\":2"))
+    }
+
+    @Test
+    fun `an unbounded lookahead is stored as infinity`() {
+        val readAhead = record.copy(config = Fixtures.slowConfig.copy(mode = VisibilityMode.READ_AHEAD))
+
+        assertEquals(Double.POSITIVE_INFINITY, readAhead.toEntity().previewDurationBeats)
+        assertEquals(readAhead, readAhead.toEntity().toRecord(readAhead.toMidiEventEntities()))
     }
 
     @Test
     fun `raw MIDI rows keep the exact bytes`() {
         events.forEach { event ->
-            val row = event.toEntity("attempt-1")
-            assertEquals("attempt-1", row.attemptId)
+            val row = event.toEntity("run-1")
+            assertEquals("run-1", row.attemptId)
             assertEquals(event, row.toMidiEvent())
         }
         assertTrue(record.toMidiEventEntities().all { it.id == 0L }, "ids are assigned by the database")
     }
 
     @Test
-    fun `an aborted attempt keeps its reason`() {
-        val aborted = record.copy(status = AttemptStatus.ABORTED, abortReason = AbortReason.MIDI_DISCONNECTED)
+    fun `an aborted run keeps its reason`() {
+        val aborted = record.copy(status = RunStatus.ABORTED, abortReason = AbortReason.MIDI_DISCONNECTED)
 
         assertEquals(aborted, aborted.toEntity().toRecord(aborted.toMidiEventEntities()))
         assertFailsWith<IllegalArgumentException> { record.copy(abortReason = AbortReason.CANCELLED) }
-        assertFailsWith<IllegalArgumentException> { record.copy(status = AttemptStatus.ABORTED) }
+        assertFailsWith<IllegalArgumentException> { record.copy(status = RunStatus.ABORTED) }
     }
 
     @Test
     fun `an evaluation round-trips with its summary columns`() {
-        val evaluation = PerformanceEvaluator.evaluate(Fixtures.cdef, events, Fixtures.slowTimeline, startedAtNanos = 0)
+        val evaluation = PerformanceEvaluator.evaluate(Fixtures.slowScore, events, Fixtures.slowTimeline, startedAtNanos = 0)
 
-        val entity = evaluation.toEntity("attempt-1", evaluatedAtEpochMillis = 5)
+        val entity = evaluation.toEntity("run-1", evaluatedAtEpochMillis = 5)
 
         assertEquals(PerformanceEvaluator.EVALUATOR_VERSION, entity.evaluatorVersion)
         assertEquals(1, entity.correctCount)
@@ -102,9 +112,9 @@ class MappersTest {
 
     @Test
     fun `snapshots ignore keys a newer app may add`() {
-        val json = """{"tempoBpm":72.0,"countInMeasures":1,"previewDurationBeats":4.0,"metronomeDuringAttempt":false,"futureKnob":1}"""
+        val json = """{"tempoBpm":72.0,"metronome":"COUNT_IN_ONLY","mode":"FLASH","lookaheadBeats":4.0,"segmentCount":8,"futureKnob":1}"""
 
-        assertEquals(FlashConfig.DEFAULT, keySightJson.decodeFromString(FlashConfig.serializer(), json))
+        assertEquals(RunConfig.DEFAULT, keySightJson.decodeFromString(RunConfig.serializer(), json))
     }
 
     @Test

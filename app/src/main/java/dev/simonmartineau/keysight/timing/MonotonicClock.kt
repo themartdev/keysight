@@ -1,7 +1,7 @@
 package dev.simonmartineau.keysight.timing
 
 /**
- * The single source of time for an attempt.
+ * The single source of time for a run.
  *
  * Audio scheduling, MIDI timestamps, notation visibility and performance start all read from
  * one monotonic base, never from independent timers. Android's MIDI framework stamps events

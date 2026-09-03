@@ -3,12 +3,14 @@ package dev.simonmartineau.keysight.data
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import dev.simonmartineau.keysight.attempt.AbortReason
-import dev.simonmartineau.keysight.attempt.AttemptRecord
-import dev.simonmartineau.keysight.attempt.AttemptStatus
-import dev.simonmartineau.keysight.attempt.FlashConfig
 import dev.simonmartineau.keysight.evaluation.PerformanceEvaluator
 import dev.simonmartineau.keysight.midi.MidiEvent
+import dev.simonmartineau.keysight.run.AbortReason
+import dev.simonmartineau.keysight.run.RunConfig
+import dev.simonmartineau.keysight.run.RunContext
+import dev.simonmartineau.keysight.run.RunRecord
+import dev.simonmartineau.keysight.run.RunStatus
+import dev.simonmartineau.keysight.run.Segment
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
 import dev.simonmartineau.keysight.score.Score
@@ -17,7 +19,6 @@ import dev.simonmartineau.keysight.score.SpelledPitch
 import dev.simonmartineau.keysight.score.Step
 import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
-import dev.simonmartineau.keysight.timing.AttemptTimeline
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -29,29 +30,31 @@ import org.junit.runner.RunWith
 
 /** The history implementation against a real Room database. Run from Android Studio. */
 @RunWith(AndroidJUnit4::class)
-class RoomAttemptHistoryTest {
+class RoomRunHistoryTest {
 
     private lateinit var database: KeySightDatabase
-    private lateinit var history: RoomAttemptHistory
+    private lateinit var history: RoomRunHistory
     private var now = 1_000L
 
-    private val score = Score(
+    private val measure = Score(
         timeSignature = TimeSignature.FOUR_FOUR,
         keySignature = KeySignature.C_MAJOR,
         measureCount = 1,
         notes = listOf(ScoreNote("n1", SpelledPitch(Step.C, octave = 4), Ticks.ZERO, Ticks.WHOLE)),
     )
 
-    private fun record(id: String, sessionId: String, status: AttemptStatus = AttemptStatus.COMPLETED, reason: AbortReason? = null) = AttemptRecord(
+    private val run = RunContext(listOf(Segment("exercise-1", measure)), RunConfig.DEFAULT.copy(segmentCount = 1))
+
+    private fun record(id: String, sessionId: String, status: RunStatus = RunStatus.COMPLETED, reason: AbortReason? = null) = RunRecord(
         id = id,
         sessionId = sessionId,
-        exerciseId = "exercise-1",
+        exerciseIds = listOf("exercise-1"),
         startedAtEpochMillis = 5,
         startedAtNanos = 10_000_000_000,
         status = status,
         abortReason = reason,
-        config = FlashConfig.DEFAULT,
-        score = score,
+        config = run.config,
+        score = run.score,
         events = listOf(MidiEvent.noteOn(14_000_000_000, Pitch.C4, 90), MidiEvent.noteOff(15_000_000_000, Pitch.C4)),
     )
 
@@ -59,7 +62,7 @@ class RoomAttemptHistoryTest {
     fun createDatabase() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.inMemoryDatabaseBuilder(context, KeySightDatabase::class.java).build()
-        history = RoomAttemptHistory(database, wallClock = { now }, ids = { "session-1" })
+        history = RoomRunHistory(database, wallClock = { now }, ids = { "session-1" })
     }
 
     @After
@@ -80,29 +83,29 @@ class RoomAttemptHistoryTest {
     }
 
     @Test
-    fun aCompletedAttemptIsStoredWithItsEvaluation() = runTest {
+    fun aCompletedRunIsStoredWithItsEvaluation() = runTest {
         val session = history.startSession()
-        val record = record("attempt-1", session)
-        val evaluation = PerformanceEvaluator.evaluate(score, record.events, AttemptTimeline.of(record.config, score), record.startedAtNanos)
+        val record = record("run-1", session)
+        val evaluation = PerformanceEvaluator.evaluate(record.score, record.events, run.timeline, record.startedAtNanos)
 
         history.record(record, evaluation)
 
         val dao = database.attemptDao()
-        assertEquals(record, dao.byId("attempt-1")!!.toRecord(dao.midiEventsFor("attempt-1")))
-        assertEquals(evaluation, dao.latestEvaluationFor("attempt-1")!!.toResult())
+        assertEquals(record, dao.byId("run-1")!!.toRecord(dao.midiEventsFor("run-1")))
+        assertEquals(evaluation, dao.latestEvaluationFor("run-1")!!.toResult())
     }
 
     @Test
-    fun anAbortedAttemptIsStoredWithoutAnEvaluation() = runTest {
+    fun anAbortedRunIsStoredWithoutAnEvaluation() = runTest {
         val session = history.startSession()
 
-        history.record(record("attempt-2", session, AttemptStatus.ABORTED, AbortReason.BACKGROUNDED), evaluation = null)
+        history.record(record("run-2", session, RunStatus.ABORTED, AbortReason.BACKGROUNDED), evaluation = null)
 
         val dao = database.attemptDao()
-        val stored = dao.byId("attempt-2")
+        val stored = dao.byId("run-2")
         assertNotNull(stored)
         assertEquals(AbortReason.BACKGROUNDED, stored!!.abortReason)
-        assertNull(dao.latestEvaluationFor("attempt-2"))
-        assertEquals(2, dao.midiEventsFor("attempt-2").size)
+        assertNull(dao.latestEvaluationFor("run-2"))
+        assertEquals(2, dao.midiEventsFor("run-2").size)
     }
 }

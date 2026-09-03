@@ -1,8 +1,7 @@
 package dev.simonmartineau.keysight.audio
 
 import dev.simonmartineau.keysight.Fixtures
-import dev.simonmartineau.keysight.attempt.FlashConfig
-import dev.simonmartineau.keysight.timing.AttemptTimeline
+import dev.simonmartineau.keysight.run.MetronomeMode
 import kotlin.math.roundToLong
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -11,10 +10,14 @@ import kotlin.test.assertTrue
 
 class ClickTrackTest {
 
-    private fun timeline(tempoBpm: Double = 60.0, metronomeDuringAttempt: Boolean = false) = AttemptTimeline.of(
-        Fixtures.slowConfig.copy(tempoBpm = tempoBpm, metronomeDuringAttempt = metronomeDuringAttempt),
+    /** The one-segment run of [Fixtures.cdef]: four count-in clicks, then four more when the metronome plays through. */
+    private fun timeline(tempoBpm: Double = 60.0, throughout: Boolean = false) = Fixtures.run(
         Fixtures.cdef,
-    )
+        config = Fixtures.slowConfig.copy(
+            tempoBpm = tempoBpm,
+            metronome = if (throughout) MetronomeMode.THROUGHOUT else MetronomeMode.COUNT_IN_ONLY,
+        ),
+    ).timeline
 
     @Test
     fun `clicks sit on the frames of their absolute beats`() {
@@ -35,15 +38,15 @@ class ClickTrackTest {
 
     @Test
     fun `the downbeat is accented`() {
-        val track = ClickTrack(48_000, timeline(metronomeDuringAttempt = true))
+        val track = ClickTrack(48_000, timeline(throughout = true))
 
         assertEquals(listOf(true, false, false, false, true, false, false, false), track.clicks.map { it.accented })
     }
 
     @Test
-    fun `the metronome stops at the performance unless asked to continue`() {
+    fun `the metronome stops after the count-in unless asked to continue`() {
         assertEquals(4, ClickTrack(48_000, timeline()).clicks.size)
-        assertEquals(8, ClickTrack(48_000, timeline(metronomeDuringAttempt = true)).clicks.size)
+        assertEquals(8, ClickTrack(48_000, timeline(throughout = true)).clicks.size)
     }
 
     @Test
@@ -100,9 +103,10 @@ class ClickTrackTest {
     }
 
     @Test
-    fun `a two measure count-in accents each measure`() {
-        val timeline = AttemptTimeline.of(FlashConfig(60.0, countInMeasures = 2, previewDurationBeats = 2.0, metronomeDuringAttempt = false), Fixtures.cdef)
+    fun `a metronome playing through a two segment run accents the start of each segment`() {
+        val timeline = Fixtures.run(Fixtures.cdef, Fixtures.gfed, config = Fixtures.slowConfig.copy(metronome = MetronomeMode.THROUGHOUT)).timeline
 
-        assertEquals(listOf(0, 4), ClickTrack(48_000, timeline).clicks.withIndex().filter { it.value.accented }.map { it.index })
+        assertEquals(listOf(0, 4, 8), ClickTrack(48_000, timeline).clicks.withIndex().filter { it.value.accented }.map { it.index })
+        assertEquals(12, ClickTrack(48_000, timeline).clicks.size)
     }
 }

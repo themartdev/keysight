@@ -38,4 +38,17 @@ class ExerciseSelectorTest {
         assertEquals(only.single(), ExerciseSelector(only, Random(1)).next(only.single()))
         assertFailsWith<IllegalArgumentException> { ExerciseSelector(emptyList(), Random(1)) }
     }
+
+    @Test
+    fun `a run's exercises never repeat consecutively and start away from the previous one`() {
+        val selector = ExerciseSelector(pack, Random(3))
+        val previous = pack[2]
+
+        val run = selector.nextRun(50, previous)
+
+        assertEquals(50, run.size)
+        assertNotEquals(previous.id, run.first().id)
+        run.zipWithNext().forEach { (a, b) -> assertNotEquals(a.id, b.id) }
+        assertFailsWith<IllegalArgumentException> { selector.nextRun(0) }
+    }
 }

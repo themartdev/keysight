@@ -3,7 +3,7 @@ package dev.simonmartineau.keysight.midi
 import dev.simonmartineau.keysight.timing.MonotonicClock
 
 /**
- * Turns the byte deliveries of one input port into [MidiEvent]s on the attempt clock.
+ * Turns the byte deliveries of one input port into [MidiEvent]s on the run clock.
  *
  * The framework stamps deliveries on the `System.nanoTime` base, which is what the app uses
  * everywhere; a delivery stamped 0 (some drivers do that) is stamped with the clock on

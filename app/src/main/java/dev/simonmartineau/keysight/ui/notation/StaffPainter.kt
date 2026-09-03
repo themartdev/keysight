@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import dev.simonmartineau.keysight.evaluation.TimingJudgement
 import dev.simonmartineau.keysight.notation.BravuraMetrics
+import dev.simonmartineau.keysight.notation.Cursor
 import dev.simonmartineau.keysight.notation.Element
 import dev.simonmartineau.keysight.notation.Glyph
 import dev.simonmartineau.keysight.notation.GlyphElement
@@ -24,13 +25,14 @@ import dev.simonmartineau.keysight.notation.SystemLayout
 import dev.simonmartineau.keysight.ui.theme.OutcomeGlyph
 import dev.simonmartineau.keysight.ui.theme.drawOutcomeMark
 
-/** Ink for the engraving and one colour per kind of outcome. */
+/** Ink for the engraving, one colour per kind of outcome, and the cursor's. */
 data class StaffColors(
     val ink: Color,
     val correct: Color,
     val wrong: Color,
     val missing: Color,
     val extra: Color,
+    val cursor: Color,
 )
 
 /** Vertical centre of the row of outcome marks under a staff, in staff spaces from its bottom line. */
@@ -45,24 +47,34 @@ private const val MARK_STROKE = 0.18
 private const val TIMING_ARROW_SIZE = 0.6
 private const val TIMING_ARROW_GAP = 0.15
 
+/** The cursor's thickness, and how far it runs past the system's outer staff lines. */
+private const val CURSOR_THICKNESS = 0.16
+private const val CURSOR_OVERHANG = 1.5
+private const val CURSOR_ALPHA = 0.55f
+
 /**
- * Paints a [PageLayout] at [staffSpace] pixels per staff space, with the page's origin (left
- * edge, first system's top staff bottom line) at [origin]. A system narrower than the page is
- * centred on it.
+ * Paints the [systems] of a [PageLayout] at [staffSpace] pixels per staff space, with the
+ * origin of the first painted system (its left edge, top staff bottom line) at [origin] and
+ * the others below it as the page places them. A system narrower than the page is centred on
+ * it. The [cursor], when given, is drawn on its system if that system is painted.
  */
 fun DrawScope.drawPage(
     page: PageLayout,
+    systems: IntRange,
     staffSpace: Float,
     origin: Offset,
     typeface: Typeface,
     colors: StaffColors,
     marks: List<NoteMark> = emptyList(),
     mask: Mask = Mask.NONE,
+    cursor: Cursor? = null,
 ) {
-    page.systems.forEachIndexed { index, placed ->
+    val firstY = page.systems[systems.first].y
+    for (index in systems) {
+        val placed = page.systems[index]
         val systemOrigin = Offset(
             origin.x + ((page.width - placed.layout.width) / 2 * staffSpace).toFloat(),
-            origin.y - (placed.y * staffSpace).toFloat(),
+            origin.y - ((placed.y - firstY) * staffSpace).toFloat(),
         )
         val systemMarks = marks.filter { mark ->
             when (mark) {
@@ -72,7 +84,8 @@ fun DrawScope.drawPage(
                 is NoteMark.WrongPitch -> mark.noteId in placed.layout.anchors
             }
         }
-        drawSystem(placed.layout, staffSpace, systemOrigin, typeface, colors, systemMarks, mask)
+        val cursorX = cursor?.takeIf { it.system == index }?.x
+        drawSystem(placed.layout, staffSpace, systemOrigin, typeface, colors, systemMarks, mask, cursorX)
     }
 }
 
@@ -87,6 +100,7 @@ fun DrawScope.drawPage(
  * [marks] tint the elements of the notes they name and add what the layout does not have:
  * the mark under each note, the pitch played instead of a wrong one, and the notes that
  * were played but not written. [mask] leaves out the notes, rests and marks of hidden time.
+ * [cursorX] draws the beat cursor through every staff of the system.
  */
 fun DrawScope.drawSystem(
     layout: SystemLayout,
@@ -96,6 +110,7 @@ fun DrawScope.drawSystem(
     colors: StaffColors,
     marks: List<NoteMark> = emptyList(),
     mask: Mask = Mask.NONE,
+    cursorX: Double? = null,
 ) {
     val painter = GlyphPainter(this, staffSpace, origin, typeface)
     val tints = HashMap<String, Color>()
@@ -150,6 +165,10 @@ fun DrawScope.drawSystem(
                 painter.drawMark(OutcomeGlyph.PLUS, mark.x + headWidth / 2, baselineY, colors.extra)
             }
         }
+    }
+
+    cursorX?.let { x ->
+        painter.drawCursor(x, layout.staves.last().baselineY - CURSOR_OVERHANG, StaffPosition.TOP_LINE.y + CURSOR_OVERHANG, colors.cursor)
     }
 }
 
@@ -248,5 +267,15 @@ private class GlyphPainter(
             close()
         }
         scope.drawPath(path, color)
+    }
+
+    /** The beat cursor: a thin translucent line at [x] from [bottomY] up to [topY]. */
+    fun drawCursor(x: Double, bottomY: Double, topY: Double, color: Color) {
+        scope.drawLine(
+            color = color.copy(alpha = CURSOR_ALPHA),
+            start = Offset(px(x), py(bottomY)),
+            end = Offset(px(x), py(topY)),
+            strokeWidth = (CURSOR_THICKNESS * staffSpace).toFloat(),
+        )
     }
 }

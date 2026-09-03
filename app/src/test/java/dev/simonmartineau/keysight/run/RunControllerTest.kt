@@ -1,19 +1,18 @@
-package dev.simonmartineau.keysight.attempt
+package dev.simonmartineau.keysight.run
 
 import dev.simonmartineau.keysight.Fixtures
-import dev.simonmartineau.keysight.attempt.AttemptState.Aborted
-import dev.simonmartineau.keysight.attempt.AttemptState.CountingIn
-import dev.simonmartineau.keysight.attempt.AttemptState.Performing
-import dev.simonmartineau.keysight.attempt.AttemptState.Ready
-import dev.simonmartineau.keysight.attempt.AttemptState.Result
 import dev.simonmartineau.keysight.audio.Metronome
 import dev.simonmartineau.keysight.audio.MetronomeStart
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
-import dev.simonmartineau.keysight.exercise.Exercise
 import dev.simonmartineau.keysight.midi.MidiEvent
+import dev.simonmartineau.keysight.run.RunState.Aborted
+import dev.simonmartineau.keysight.run.RunState.CountingIn
+import dev.simonmartineau.keysight.run.RunState.Performing
+import dev.simonmartineau.keysight.run.RunState.Ready
+import dev.simonmartineau.keysight.run.RunState.Summary
 import dev.simonmartineau.keysight.score.Pitch
-import dev.simonmartineau.keysight.timing.AttemptTimeline
 import dev.simonmartineau.keysight.timing.MonotonicClock
+import dev.simonmartineau.keysight.timing.RunTimeline
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -30,8 +29,13 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+/**
+ * The two-segment run of C4 D4 E4 F4 then G4 F4 E4 D4 at 60 bpm: the metronome anchors 300 ms
+ * after start, the count-in is the next four seconds, segment 1 the four after, segment 2 the
+ * four after that, and capture ends one second later.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
-class AttemptControllerTest {
+class RunControllerTest {
 
     /** The one clock: virtual time, in nanoseconds. */
     private class TestClock(private val scheduler: TestCoroutineScheduler) : MonotonicClock {
@@ -42,9 +46,9 @@ class AttemptControllerTest {
     private class FakeMetronome(private val clock: MonotonicClock) : Metronome {
         var starts = 0
         var stops = 0
-        var lastTimeline: AttemptTimeline? = null
+        var lastTimeline: RunTimeline? = null
 
-        override suspend fun start(timeline: AttemptTimeline): MetronomeStart {
+        override suspend fun start(timeline: RunTimeline): MetronomeStart {
             starts++
             lastTimeline = timeline
             delay(300)
@@ -56,14 +60,14 @@ class AttemptControllerTest {
         }
     }
 
-    private class FakeHistory : AttemptHistory {
+    private class FakeHistory : RunHistory {
         val sessions = mutableListOf<String>()
         val ended = mutableListOf<String>()
-        val records = mutableListOf<Pair<AttemptRecord, EvaluationResult?>>()
+        val records = mutableListOf<Pair<RunRecord, EvaluationResult?>>()
 
         override suspend fun startSession(): String = "session-${sessions.size + 1}".also(sessions::add)
         override suspend fun endSession(sessionId: String) { ended += sessionId }
-        override suspend fun record(record: AttemptRecord, evaluation: EvaluationResult?) { records += record to evaluation }
+        override suspend fun record(record: RunRecord, evaluation: EvaluationResult?) { records += record to evaluation }
     }
 
     private class Rig(scope: TestScope) {
@@ -71,22 +75,26 @@ class AttemptControllerTest {
         val metronome = FakeMetronome(clock)
         val history = FakeHistory()
         private var nextId = 0
-        val controller = AttemptController(
+        val controller = RunController(
             scope = scope,
             persistScope = scope,
             clock = clock,
             metronome = metronome,
             history = history,
             evaluationDispatcher = StandardTestDispatcher(scope.testScheduler),
-            ids = { "attempt-${++nextId}" },
+            ids = { "run-${++nextId}" },
             wallClock = { WALL_EPOCH + scope.testScheduler.currentTime },
         )
         val state get() = controller.state.value
 
-        fun loadDefault() = controller.load(Fixtures.exercise, Fixtures.slowConfig)
-    }
+        fun loadDefault() = controller.load(twoBars)
 
-    private val ms = 1_000_000L
+        /** Strikes [pitch] now and releases it half a second later. */
+        fun play(pitch: Int) {
+            controller.onMidi(MidiEvent.noteOn(clock.nowNanos(), Pitch(pitch), 90))
+            controller.onMidi(MidiEvent.noteOff(clock.nowNanos() + 500 * ms, Pitch(pitch)))
+        }
+    }
 
     @Test
     fun `the happy path follows the timeline from the metronome's anchor`() = runTest {
@@ -98,39 +106,42 @@ class AttemptControllerTest {
         runCurrent()
         assertIs<Ready>(rig.state)
         assertEquals(1, rig.metronome.starts)
+        assertEquals(twoBars.timeline, rig.metronome.lastTimeline)
 
         advanceTimeBy(300)
         runCurrent()
         val countingIn = assertIs<CountingIn>(rig.state)
         assertEquals(300 * ms, countingIn.startedAtNanos)
-        assertEquals(false, countingIn.notationVisible)
+        assertEquals(2, countingIn.lastSegment)
 
-        advanceTimeBy(1999)
+        advanceTimeBy(3999)
         runCurrent()
-        assertEquals(false, assertIs<CountingIn>(rig.state).notationVisible)
+        assertIs<CountingIn>(rig.state)
         advanceTimeBy(1)
-        runCurrent()
-        assertEquals(true, assertIs<CountingIn>(rig.state).notationVisible)
-
-        advanceTimeBy(2000)
         runCurrent()
         assertIs<Performing>(rig.state)
 
-        advanceTimeBy(5000)
+        advanceTimeBy(8999)
         runCurrent()
-        val result = assertIs<Result>(rig.state)
-        assertEquals(0, result.evaluation.pitch.correctCount)
+        assertIs<Performing>(rig.state)
+        advanceTimeBy(1)
+        runCurrent()
+        val summary = assertIs<Summary>(rig.state)
+        assertEquals(0, summary.evaluation.pitch.correctCount)
+        assertEquals(8, summary.evaluation.pitch.expectedCount)
         assertEquals(1, rig.metronome.stops)
 
         advanceUntilIdle()
         val (record, evaluation) = rig.history.records.single()
-        assertEquals("attempt-1", record.id)
+        assertEquals("run-1", record.id)
         assertEquals("session-1", record.sessionId)
-        assertEquals(AttemptStatus.COMPLETED, record.status)
+        assertEquals(listOf("segment-1", "segment-2"), record.exerciseIds)
+        assertEquals(RunStatus.COMPLETED, record.status)
         assertEquals(300 * ms, record.startedAtNanos)
         assertEquals(WALL_EPOCH + 300, record.startedAtEpochMillis)
-        assertEquals(Fixtures.cdef, record.score)
-        assertEquals(result.evaluation, evaluation)
+        assertEquals(twoBars.score, record.score)
+        assertEquals(twoBars.config, record.config)
+        assertEquals(summary.evaluation, evaluation)
     }
 
     @Test
@@ -142,18 +153,15 @@ class AttemptControllerTest {
         runCurrent()
         assertIs<Performing>(rig.state)
 
-        val pitches = listOf(60, 62, 64, 65).map(::Pitch)
-        pitches.forEach { pitch ->
-            rig.controller.onMidi(MidiEvent.noteOn(rig.clock.nowNanos(), pitch, 90))
-            advanceTimeBy(500)
-            rig.controller.onMidi(MidiEvent.noteOff(rig.clock.nowNanos(), pitch))
-            advanceTimeBy(500)
+        listOf(60, 62, 64, 65, 67, 65, 64, 62).forEach { pitch ->
+            rig.play(pitch)
+            advanceTimeBy(1000)
         }
         advanceUntilIdle()
 
-        val result = assertIs<Result>(rig.state)
-        assertEquals(1.0, result.evaluation.pitch.accuracy)
-        assertEquals(8, rig.history.records.single().first.events.size)
+        val summary = assertIs<Summary>(rig.state)
+        assertEquals(1.0, summary.evaluation.pitch.accuracy)
+        assertEquals(16, rig.history.records.single().first.events.size)
     }
 
     @Test
@@ -168,13 +176,94 @@ class AttemptControllerTest {
         assertEquals(listOf(early), assertIs<CountingIn>(rig.state).captured)
 
         advanceUntilIdle()
-        val result = assertIs<Result>(rig.state)
-        assertEquals(4, result.evaluation.pitch.missingCount)
+        val summary = assertIs<Summary>(rig.state)
+        assertEquals(8, summary.evaluation.pitch.missingCount)
         assertEquals(listOf(early), rig.history.records.single().first.events)
     }
 
     @Test
-    fun `a disconnect mid-attempt aborts, stops the metronome and keeps the raw MIDI`() = runTest {
+    fun `stopping mid-run wakes the sleeping job, finishes the bar and summarises what was performed`() = runTest {
+        val rig = Rig(this)
+        rig.loadDefault()
+        rig.controller.start()
+        advanceTimeBy(300 + 4000)
+        runCurrent()
+        listOf(60, 62, 64, 65).forEach { pitch ->
+            rig.play(pitch)
+            advanceTimeBy(1000)
+        }
+        advanceTimeBy(500)
+        runCurrent()
+        assertEquals(2, assertIs<Performing>(rig.state).lastSegment)
+
+        rig.controller.stop()
+        runCurrent()
+        assertEquals(2, assertIs<Performing>(rig.state).lastSegment)
+
+        // Segment 2 ends 4 s after 12.3 s, capture one second later: the summary is up at 13.3 s, not 17.3 s.
+        advanceTimeBy(4000 + 1000 - 500 - 1)
+        runCurrent()
+        assertIs<Performing>(rig.state)
+        advanceTimeBy(1)
+        runCurrent()
+        val summary = assertIs<Summary>(rig.state)
+        assertEquals(2, summary.lastSegment)
+        assertEquals(8, summary.evaluation.pitch.expectedCount)
+        assertEquals(4, summary.evaluation.pitch.correctCount)
+
+        advanceUntilIdle()
+        assertEquals(twoBars.score, rig.history.records.single().first.score)
+    }
+
+    @Test
+    fun `stopping in the first bar cuts the run after it`() = runTest {
+        val rig = Rig(this)
+        rig.loadDefault()
+        rig.controller.start()
+        advanceTimeBy(300 + 4000 + 1500)
+        runCurrent()
+
+        rig.controller.stop()
+        runCurrent()
+        assertEquals(1, assertIs<Performing>(rig.state).lastSegment)
+
+        advanceTimeBy(2500 + 1000)
+        runCurrent()
+        val summary = assertIs<Summary>(rig.state)
+        assertEquals(1, summary.lastSegment)
+        assertEquals(4, summary.evaluation.pitch.expectedCount)
+        assertEquals(2, summary.performed.score.measureCount)
+
+        advanceUntilIdle()
+        val record = rig.history.records.single().first
+        assertEquals(RunStatus.COMPLETED, record.status)
+        assertEquals(2, record.score.measureCount)
+        assertEquals(listOf("segment-1", "segment-2"), record.exerciseIds)
+    }
+
+    @Test
+    fun `stopping during the count-in cancels the run`() = runTest {
+        val rig = Rig(this)
+        rig.loadDefault()
+        rig.controller.start()
+        advanceTimeBy(300 + 1000)
+        runCurrent()
+
+        rig.controller.stop()
+        val aborted = assertIs<Aborted>(rig.state)
+        assertEquals(AbortReason.CANCELLED, aborted.reason)
+        assertEquals(1, rig.metronome.stops)
+
+        advanceUntilIdle()
+        assertIs<Aborted>(rig.state)
+        val (record, evaluation) = rig.history.records.single()
+        assertEquals(RunStatus.ABORTED, record.status)
+        assertEquals(AbortReason.CANCELLED, record.abortReason)
+        assertNull(evaluation)
+    }
+
+    @Test
+    fun `a disconnect mid-run aborts, stops the metronome and keeps the raw MIDI`() = runTest {
         val rig = Rig(this)
         rig.loadDefault()
         rig.controller.start()
@@ -191,9 +280,10 @@ class AttemptControllerTest {
         advanceUntilIdle()
         assertIs<Aborted>(rig.state)
         val (record, evaluation) = rig.history.records.single()
-        assertEquals(AttemptStatus.ABORTED, record.status)
+        assertEquals(RunStatus.ABORTED, record.status)
         assertEquals(AbortReason.MIDI_DISCONNECTED, record.abortReason)
         assertEquals(listOf(note), record.events)
+        assertEquals(twoBars.score, record.score)
         assertNull(evaluation)
     }
 
@@ -224,23 +314,22 @@ class AttemptControllerTest {
         advanceUntilIdle()
         assertTrue(rig.history.records.isEmpty())
 
-        val other = Exercise("other", Fixtures.cdef, 1)
-        rig.controller.load(other, Fixtures.slowConfig)
-        assertEquals(other, assertIs<Ready>(rig.state).context.exercise)
+        rig.controller.load(Fixtures.slowRun)
+        assertEquals(Fixtures.slowRun, assertIs<Ready>(rig.state).context)
     }
 
     @Test
-    fun `reloading while ready re-times the same exercise`() = runTest {
+    fun `reloading while ready re-times the same run`() = runTest {
         val rig = Rig(this)
         rig.loadDefault()
 
-        rig.controller.load(Fixtures.exercise, Fixtures.slowConfig.copy(previewDurationBeats = 1.0))
+        rig.controller.load(twoBars.copy(config = twoBars.config.copy(tempoBpm = 120.0)))
 
-        assertEquals(1.0, assertIs<Ready>(rig.state).context.timeline.previewDurationBeats)
+        assertEquals(120.0, assertIs<Ready>(rig.state).context.timeline.tempoBpm)
     }
 
     @Test
-    fun `starting twice or loading mid-attempt is a programming error`() = runTest {
+    fun `starting twice or loading mid-run is a programming error`() = runTest {
         val rig = Rig(this)
         rig.loadDefault()
         rig.controller.start()
@@ -248,31 +337,31 @@ class AttemptControllerTest {
         runCurrent()
 
         assertFailsWith<IllegalStateException> { rig.controller.start() }
-        assertFailsWith<IllegalStateException> { rig.controller.load(Fixtures.exercise, Fixtures.slowConfig) }
+        assertFailsWith<IllegalStateException> { rig.controller.load(twoBars) }
         rig.controller.abort(AbortReason.CANCELLED)
         advanceUntilIdle()
     }
 
     @Test
-    fun `one session spans consecutive attempts and is closed on request`() = runTest {
+    fun `one session spans consecutive runs and is closed on request`() = runTest {
         val rig = Rig(this)
         repeat(3) {
-            rig.controller.load(Fixtures.exercise, Fixtures.slowConfig)
+            rig.controller.load(Fixtures.slowRun)
             rig.controller.start()
             advanceUntilIdle()
-            assertIs<Result>(rig.state)
+            assertIs<Summary>(rig.state)
         }
         rig.controller.endSession()
         advanceUntilIdle()
 
         assertEquals(listOf("session-1"), rig.history.sessions)
         assertEquals(listOf("session-1", "session-1", "session-1"), rig.history.records.map { it.first.sessionId })
-        assertEquals(listOf("attempt-1", "attempt-2", "attempt-3"), rig.history.records.map { it.first.id })
+        assertEquals(listOf("run-1", "run-2", "run-3"), rig.history.records.map { it.first.id })
         assertEquals(listOf("session-1"), rig.history.ended)
     }
 
     @Test
-    fun `MIDI is ignored before anything is loaded and after a result`() = runTest {
+    fun `MIDI is ignored before anything is loaded and after a summary`() = runTest {
         val rig = Rig(this)
         rig.controller.onMidi(MidiEvent.noteOn(0, Pitch(60), 90))
         assertNull(rig.state)
@@ -280,12 +369,14 @@ class AttemptControllerTest {
         rig.loadDefault()
         rig.controller.start()
         advanceUntilIdle()
-        val result = assertIs<Result>(rig.state)
+        val summary = assertIs<Summary>(rig.state)
         rig.controller.onMidi(MidiEvent.noteOn(rig.clock.nowNanos(), Pitch(60), 90))
-        assertEquals(result, rig.state)
+        assertEquals(summary, rig.state)
     }
 
     private companion object {
         const val WALL_EPOCH = 1_700_000_000_000L
+        const val ms = 1_000_000L
+        val twoBars = Fixtures.run(Fixtures.cdef, Fixtures.gfed)
     }
 }

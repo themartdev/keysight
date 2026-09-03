@@ -120,14 +120,15 @@ Built and verified:
 - treble or bass staff engraving with Bravura, quarter and half notes, C major;
 - pitch evaluation by edit-distance alignment over pitch and onset;
 - rhythm evaluation with bounded beat-phase estimation, timing marks, tempo ratio, pauses, and continuity;
-- Room history with raw MIDI, score and config snapshots, evaluations keyed by evaluator version.
+- Room history with raw MIDI, score and config snapshots, evaluations keyed by evaluator version;
+- the grand staff, key signatures, systems and pages, the per-tick mask;
+- the continuous run's presentation: the run timeline with a silent segment 0, the visibility policy and its three presets, the mask on every frame, the cursor, the page turn, the run reducer and controller, bundled measures chained in one key.
 
 Next, in the order of section 13:
 
-1. grand staff, key signatures, systems and pages, the per-tick mask;
-2. the continuous run with incremental evaluation and a run-level data model;
-3. a seeded exercise generator, key selection, both hands;
-4. the per-segment difficulty controller.
+1. the continuous run's evaluation: incremental evaluation, the running beat phase, marks behind the cursor, the run-level data model, the run summary, open-ended runs;
+2. a seeded exercise generator, key selection, both hands;
+3. the per-segment difficulty controller.
 
 Then, one generator dimension at a time: eighth notes, rests, accidentals, wider ranges, chords, other meters.
 
@@ -159,6 +160,7 @@ Legal interruptions, each a tested transition:
 - The app is backgrounded: the run aborts the same way.
 - The player stops: the run ends after the current segment's capture tail and is summarised.
 - MIDI arrives before beat n(0): captured, attributed to no segment, kept.
+- The player stops during the count-in: nothing was performed, so the run is cancelled rather than summarised.
 
 ---
 
@@ -299,7 +301,7 @@ notation/    the layout engine: systems, pages, the mask by tick
 ui/          the Compose renderer and the practice screen
 ```
 
-`attempt/` becomes `run/` when the continuous run lands; until then the names in `CLAUDE.md` apply.
+`run/` replaced `attempt/` in Round 6; `CLAUDE.md` names what each package holds today.
 
 ### Score representation
 
@@ -406,12 +408,21 @@ Each round is planned in plan mode, verified with unit tests, debug and release 
 
 ### Round 6: the continuous run
 
-- The run timeline with a silent segment 0, the `VisibilityPolicy` and its three presets, the cursor and the page turn.
+Split into two halves.
+
+Presentation, built:
+
+- The run timeline with a silent segment 0, the `VisibilityPolicy` and its three presets, the mask from the beat on every frame, the cursor and the page turn.
+- The run reducer and controller replacing the attempt ones, with Stop ending the run after the current segment.
+- Content: bundled measures chained in one key.
+- The whole run is evaluated once at its end and stored as one row on the attempt tables, so history keeps every note until the evaluation half lands.
+- Device check: a fixed-length Flash run in both orientations, the page turning as the cursor enters the next system, notes disappearing on the beat.
+
+Evaluation, next:
+
 - Incremental evaluation on a trailing window, the running beat phase, marks appearing behind the cursor.
 - Schema version 3: runs, segments, MIDI by run, evaluations by segment; attempts migrated to one-segment runs.
-- Run summary.
-- Content: bundled measures chained in one key.
-- This round may be split into presentation and evaluation halves if it runs long.
+- Run summary, open-ended runs.
 - Device check: an open-ended Read-ahead run for five minutes without drift, marks on the right notes across page turns.
 
 ### Round 7: the generator

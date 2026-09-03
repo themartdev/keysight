@@ -3,15 +3,15 @@ package dev.simonmartineau.keysight.evaluation
 import dev.simonmartineau.keysight.midi.MidiEvent
 import dev.simonmartineau.keysight.midi.MidiMessage
 import dev.simonmartineau.keysight.score.Pitch
-import dev.simonmartineau.keysight.timing.AttemptTimeline
+import dev.simonmartineau.keysight.timing.RunTimeline
 import kotlinx.serialization.Serializable
 
 /**
- * One note the player sounded, positioned on the exercise's beat line.
+ * One note the player sounded, positioned on the run's beat line.
  *
- * Beats are relative to the performance start, so beat 0 is the first notated beat and the
- * count-in lies at negative positions. [releaseBeat] is null when the key was still down
- * when capture ended.
+ * Beats are run beats: beat 0 is the first count-in click, the count-in is segment 0, and the
+ * first notated beat is the start of segment 1. This is the same line the score's ticks are
+ * on. [releaseBeat] is null when the key was still down when capture ended.
  */
 @Serializable
 data class PlayedNote(
@@ -38,14 +38,13 @@ object PlayedNotes {
      */
     fun extract(
         events: List<MidiEvent>,
-        timeline: AttemptTimeline,
+        timeline: RunTimeline,
         startedAtNanos: Long,
         earlyGraceBeats: Double,
     ): List<PlayedNote> {
         require(earlyGraceBeats >= 0.0) { "earlyGraceBeats must not be negative" }
 
-        fun beatOf(timestampNanos: Long): Double =
-            timeline.beatAtNanos(timestampNanos - startedAtNanos) - timeline.performanceStartBeat
+        fun beatOf(timestampNanos: Long): Double = timeline.beatAtNanos(timestampNanos - startedAtNanos)
 
         val notes = ArrayList<Pending>()
         val open = HashMap<Pair<Int, Pitch>, Pending>()
@@ -65,8 +64,8 @@ object PlayedNotes {
             }
         }
 
-        val windowStart = -earlyGraceBeats
-        val windowEnd = timeline.captureEndBeat - timeline.performanceStartBeat
+        val windowStart = timeline.performanceStartBeat - earlyGraceBeats
+        val windowEnd = timeline.captureEndBeat
         return notes
             .map { pending ->
                 PlayedNote(

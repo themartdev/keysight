@@ -1,21 +1,21 @@
 package dev.simonmartineau.keysight.di
 
 import android.content.Context
-import dev.simonmartineau.keysight.attempt.AttemptController
-import dev.simonmartineau.keysight.attempt.AttemptHistory
 import dev.simonmartineau.keysight.audio.AudioTrackMetronome
 import dev.simonmartineau.keysight.audio.Metronome
 import dev.simonmartineau.keysight.data.KeySightDatabase
-import dev.simonmartineau.keysight.data.RoomAttemptHistory
+import dev.simonmartineau.keysight.data.RoomRunHistory
 import dev.simonmartineau.keysight.data.keySightJson
 import dev.simonmartineau.keysight.exercise.AndroidAssetSource
 import dev.simonmartineau.keysight.exercise.BundledExerciseRepository
 import dev.simonmartineau.keysight.exercise.ExerciseRepository
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
+import dev.simonmartineau.keysight.run.RunController
+import dev.simonmartineau.keysight.run.RunHistory
 import dev.simonmartineau.keysight.settings.ContentSettings
-import dev.simonmartineau.keysight.settings.FlashSettings
+import dev.simonmartineau.keysight.settings.RunSettings
 import dev.simonmartineau.keysight.settings.SharedPreferencesContentSettings
-import dev.simonmartineau.keysight.settings.SharedPreferencesFlashSettings
+import dev.simonmartineau.keysight.settings.SharedPreferencesRunSettings
 import dev.simonmartineau.keysight.settings.SharedPreferencesThemeSettings
 import dev.simonmartineau.keysight.settings.ThemeSettings
 import dev.simonmartineau.keysight.timing.MonotonicClock
@@ -36,12 +36,12 @@ class AppContainer(context: Context) {
 
     val clock: MonotonicClock = SystemMonotonicClock
 
-    /** Outlives any screen, for work that must finish once started: recording an attempt, closing a session. */
+    /** Outlives any screen, for work that must finish once started: recording a run, closing a session. */
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     val database: KeySightDatabase by lazy { KeySightDatabase.build(appContext) }
 
-    val attemptHistory: AttemptHistory by lazy { RoomAttemptHistory(database) }
+    val runHistory: RunHistory by lazy { RoomRunHistory(database) }
 
     val midiDeviceManager: MidiDeviceManager by lazy { MidiDeviceManager(appContext, clock) }
 
@@ -51,13 +51,13 @@ class AppContainer(context: Context) {
         BundledExerciseRepository(AndroidAssetSource(appContext.assets), keySightJson)
     }
 
-    val flashSettings: FlashSettings by lazy { SharedPreferencesFlashSettings(appContext) }
+    val runSettings: RunSettings by lazy { SharedPreferencesRunSettings(appContext) }
 
     val contentSettings: ContentSettings by lazy { SharedPreferencesContentSettings(appContext) }
 
     val themeSettings: ThemeSettings by lazy { SharedPreferencesThemeSettings(appContext) }
 
     /** One controller per practice screen; [scope] is the screen's main-thread scope. */
-    fun attemptController(scope: CoroutineScope): AttemptController =
-        AttemptController(scope, appScope, clock, metronome, attemptHistory)
+    fun runController(scope: CoroutineScope): RunController =
+        RunController(scope, appScope, clock, metronome, runHistory)
 }

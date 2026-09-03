@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        // A practice session is hands-on-keys; the screen must not dim mid-attempt.
+        // A practice session is hands-on-keys; the screen must not dim mid-run.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val container = (application as KeySightApplication).container
         setContent {

@@ -1,6 +1,6 @@
 package dev.simonmartineau.keysight.audio
 
-import dev.simonmartineau.keysight.timing.AttemptTimeline
+import dev.simonmartineau.keysight.timing.RunTimeline
 import kotlin.math.roundToLong
 
 /**
@@ -11,11 +11,11 @@ import kotlin.math.roundToLong
  * came before. [render] fills any window of that line on demand; the writer thread never
  * decides when a click happens, it only keeps the buffer full.
  *
- * Frame 0 is the attempt start, the first count-in click.
+ * Frame 0 is the run start, the first count-in click.
  */
 class ClickTrack(
     val sampleRate: Int,
-    val timeline: AttemptTimeline,
+    val timeline: RunTimeline,
     accent: ShortArray = ClickSynth.render(sampleRate, ClickSynth.ACCENT),
     beat: ShortArray = ClickSynth.render(sampleRate, ClickSynth.BEAT),
 ) {

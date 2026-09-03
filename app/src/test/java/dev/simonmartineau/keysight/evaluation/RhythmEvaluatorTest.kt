@@ -11,12 +11,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Rhythm end to end, against the C4 D4 E4 F4 measure at 60 bpm: the performance starts four
- * seconds after the attempt and each beat is one second, so seconds are beats.
+ * Rhythm end to end, against the one-segment run of the C4 D4 E4 F4 measure at 60 bpm: the
+ * notes are due four seconds after the run starts and each beat is one second, so seconds
+ * from the performance start are beats of the bar.
  */
 class RhythmEvaluatorTest {
 
-    private val score = Fixtures.cdef
+    private val score = Fixtures.slowScore
     private val timeline = Fixtures.slowTimeline
     private val performanceStart = 4 * SECOND_NANOS
 
@@ -73,12 +74,20 @@ class RhythmEvaluatorTest {
     }
 
     @Test
+    fun `timings are on the run's beat line`() {
+        val rhythm = evaluate(performance(c4 to 0.0, d4 to 1.0, e4 to 2.0, f4 to 3.0)).rhythm!!
+
+        assertEquals(listOf(4.0, 5.0, 6.0, 7.0), rhythm.timings.map { it.expectedBeat })
+        assertEquals(listOf(4.0, 5.0, 6.0, 7.0), rhythm.timings.map { it.playedBeat })
+    }
+
+    @Test
     fun `a hesitation is a pause and costs continuity`() {
         val result = evaluate(performance(c4 to 0.0, d4 to 1.0, e4 to 3.0, f4 to 4.0))
 
         assertEquals(1.0, result.pitch.accuracy)
         val rhythm = result.rhythm!!
-        assertEquals(listOf("n3"), rhythm.pauses.map { it.beforeNoteId })
+        assertEquals(listOf("1:n3"), rhythm.pauses.map { it.beforeNoteId })
         assertEquals(1.0, rhythm.pauses.single().extraBeats, 1e-9)
         assertEquals(0.5, rhythm.accuracy)
         assertEquals(Continuity.HESITANT, rhythm.continuity)
@@ -87,14 +96,16 @@ class RhythmEvaluatorTest {
 
     @Test
     fun `timing tells which repeat of a note was skipped`() {
-        val repeated = Fixtures.oneMeasure(
-            ScoreNote("r1", Fixtures.C4, Ticks.ZERO, Ticks.QUARTER),
-            ScoreNote("r2", Fixtures.C4, Ticks.QUARTER, Ticks.QUARTER),
-            ScoreNote("r3", Fixtures.C4, Ticks.quarters(2), Ticks.QUARTER),
-            ScoreNote("r4", Fixtures.C4, Ticks.quarters(3), Ticks.QUARTER),
+        val repeated = Fixtures.run(
+            Fixtures.oneMeasure(
+                ScoreNote("r1", Fixtures.C4, Ticks.ZERO, Ticks.QUARTER),
+                ScoreNote("r2", Fixtures.C4, Ticks.QUARTER, Ticks.QUARTER),
+                ScoreNote("r3", Fixtures.C4, Ticks.quarters(2), Ticks.QUARTER),
+                ScoreNote("r4", Fixtures.C4, Ticks.quarters(3), Ticks.QUARTER),
+            ),
         )
 
-        val result = PerformanceEvaluator.evaluate(repeated, performance(c4 to 0.0, c4 to 1.0, c4 to 3.0), timeline, 0L)
+        val result = PerformanceEvaluator.evaluate(repeated.score, performance(c4 to 0.0, c4 to 1.0, c4 to 3.0), repeated.timeline, 0L)
 
         assertEquals(listOf("Correct", "Correct", "Missing", "Correct"), result.pitch.outcomes.map { it::class.simpleName })
         assertEquals(1.0, result.rhythm!!.accuracy)
@@ -115,7 +126,7 @@ class RhythmEvaluatorTest {
         val events = performance(c4 to 0.1, g4 to 0.9, e4 to 2.4, f4 to 3.0)
 
         assertEquals(evaluate(events), evaluate(events))
-        assertEquals(2, evaluate(events).evaluatorVersion)
+        assertEquals(3, evaluate(events).evaluatorVersion)
         assertTrue(evaluate(events).rhythm != null)
     }
 }

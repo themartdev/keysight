@@ -11,7 +11,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * One annotation to draw on top of a [PageLayout] after an attempt.
+ * One annotation to draw on top of a [PageLayout] after a run.
  *
  * Marks about a notated note refer to it by id, so the renderer finds its anchor and tints
  * its elements. Marks about notes the player added carry their own position: they are not

@@ -8,6 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
+/** On the one-segment run at 60 bpm: beat 0 is the run start, the notes are due from beat 4, capture ends at beat 9. */
 class PlayedNotesTest {
 
     private val timeline = Fixtures.slowTimeline
@@ -20,13 +21,13 @@ class PlayedNotesTest {
         PlayedNotes.extract(events.toList(), timeline, startedAt, grace)
 
     @Test
-    fun `a note-on and its note-off become one note on the beat line`() {
+    fun `a note-on and its note-off become one note on the run's beat line`() {
         val notes = extract(
             MidiEvent.noteOn(performanceStart + SECOND_NANOS, c4, 90),
             MidiEvent.noteOff(performanceStart + SECOND_NANOS + SECOND_NANOS / 2, c4),
         )
 
-        assertEquals(listOf(PlayedNote(c4, 1.0, 1.5, 90, performanceStart + SECOND_NANOS)), notes)
+        assertEquals(listOf(PlayedNote(c4, 5.0, 5.5, 90, performanceStart + SECOND_NANOS)), notes)
     }
 
     @Test
@@ -49,7 +50,7 @@ class PlayedNotesTest {
             MidiEvent.noteOff(performanceStart + 2 * SECOND_NANOS, c4),
         )
 
-        assertEquals(listOf(0.0 to 1.0, 1.0 to 2.0), notes.map { it.onsetBeat to it.releaseBeat })
+        assertEquals(listOf(4.0 to 5.0, 5.0 to 6.0), notes.map { it.onsetBeat to it.releaseBeat })
     }
 
     @Test
@@ -60,7 +61,7 @@ class PlayedNotesTest {
             MidiEvent.noteOff(performanceStart + SECOND_NANOS, c4, channel = 1),
         )
 
-        assertEquals(listOf(null, 1.0), notes.map { it.releaseBeat })
+        assertEquals(listOf(null, 5.0), notes.map { it.releaseBeat })
     }
 
     @Test
@@ -73,7 +74,7 @@ class PlayedNotesTest {
         )
 
         assertEquals(1, notes.size)
-        assertEquals(1.0, notes.single().releaseBeat)
+        assertEquals(5.0, notes.single().releaseBeat)
     }
 
     @Test
@@ -92,7 +93,7 @@ class PlayedNotesTest {
         val slightlyEarly = performanceStart - SECOND_NANOS / 2
         val tooEarly = performanceStart - SECOND_NANOS / 2 - 1
 
-        assertEquals(-0.5, extract(MidiEvent.noteOn(slightlyEarly, c4, 90)).single().onsetBeat)
+        assertEquals(3.5, extract(MidiEvent.noteOn(slightlyEarly, c4, 90)).single().onsetBeat)
         assertEquals(emptyList(), extract(MidiEvent.noteOn(tooEarly, c4, 90)))
         assertEquals(emptyList(), extract(MidiEvent.noteOn(slightlyEarly, c4, 90), grace = 0.0))
     }
@@ -101,7 +102,7 @@ class PlayedNotesTest {
     fun `notes in the capture tail count and notes after it do not`() {
         val captureEnd = startedAt + 9 * SECOND_NANOS
 
-        assertEquals(5.0, extract(MidiEvent.noteOn(captureEnd, c4, 90)).single().onsetBeat)
+        assertEquals(9.0, extract(MidiEvent.noteOn(captureEnd, c4, 90)).single().onsetBeat)
         assertEquals(emptyList(), extract(MidiEvent.noteOn(captureEnd + 1, c4, 90)))
     }
 

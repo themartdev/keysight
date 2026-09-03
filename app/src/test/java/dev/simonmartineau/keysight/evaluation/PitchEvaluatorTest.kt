@@ -11,12 +11,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 /**
- * Replays hand-built MIDI against the C4 D4 E4 F4 measure at 60 bpm, where the performance
- * starts four seconds after the attempt and each beat is one second.
+ * Replays hand-built MIDI against the one-segment run of the C4 D4 E4 F4 measure at 60 bpm:
+ * the count-in is the first four seconds, the notes are due at seconds 4 to 7, and each beat
+ * is one second, so run beats are seconds.
  */
 class PitchEvaluatorTest {
 
-    private val score = Fixtures.cdef
+    private val score = Fixtures.slowScore
     private val timeline = Fixtures.slowTimeline
     private val startedAt = 0L
     private val performanceStart = 4 * SECOND_NANOS
@@ -55,7 +56,7 @@ class PitchEvaluatorTest {
 
         assertEquals(listOf("Correct", "Correct", "WrongPitch", "Correct"), kinds(result))
         val wrong = assertIs<NoteOutcome.WrongPitch>(result.outcomes[2])
-        assertEquals("n3", wrong.expected.id)
+        assertEquals("1:n3", wrong.expected.id)
         assertEquals(g4, wrong.played.pitch)
         assertEquals(0.75, result.accuracy)
     }
@@ -65,7 +66,7 @@ class PitchEvaluatorTest {
         val result = evaluate(performance(listOf(c4, d4, f4)))
 
         assertEquals(listOf("Correct", "Correct", "Missing", "Correct"), kinds(result))
-        assertEquals("n3", assertIs<NoteOutcome.Missing>(result.outcomes[2]).expected.id)
+        assertEquals("1:n3", assertIs<NoteOutcome.Missing>(result.outcomes[2]).expected.id)
         assertEquals(1, result.missingCount)
         assertEquals(0.75, result.accuracy)
     }
@@ -86,8 +87,8 @@ class PitchEvaluatorTest {
         assertEquals(listOf("Correct", "Correct", "Extra", "Correct", "Correct"), kinds(result))
         val correct = assertIs<NoteOutcome.Correct>(result.outcomes[1])
         val extra = assertIs<NoteOutcome.Extra>(result.outcomes[2])
-        assertEquals(1.0, correct.played.onsetBeat)
-        assertEquals(2.0, extra.played.onsetBeat)
+        assertEquals(5.0, correct.played.onsetBeat)
+        assertEquals(6.0, extra.played.onsetBeat)
     }
 
     @Test
@@ -97,7 +98,7 @@ class PitchEvaluatorTest {
 
         assertEquals(1.0, early.accuracy)
         assertEquals(1.0, late.accuracy)
-        assertEquals(-0.25, assertIs<NoteOutcome.Correct>(early.outcomes[0]).played.onsetBeat)
+        assertEquals(3.75, assertIs<NoteOutcome.Correct>(early.outcomes[0]).played.onsetBeat)
     }
 
     @Test
@@ -152,6 +153,18 @@ class PitchEvaluatorTest {
     }
 
     @Test
+    fun `a two segment run is one performance across the barline`() {
+        val run = Fixtures.run(Fixtures.cdef, Fixtures.gfed)
+        val events = performance(listOf(c4, d4, e4, f4, g4, f4, e4, d4))
+
+        val result = PerformanceEvaluator.evaluate(run.score, events, run.timeline, startedAt).pitch
+
+        assertEquals(8, result.expectedCount)
+        assertEquals(1.0, result.accuracy)
+        assertEquals("2:n1", assertIs<NoteOutcome.Correct>(result.outcomes[4]).expected.id)
+    }
+
+    @Test
     fun `the evaluator is deterministic`() {
         val events = performance(listOf(c4, g4, d4, e4, f4, f4))
 
@@ -165,20 +178,22 @@ class PitchEvaluatorTest {
 
     @Test
     fun `accuracy of an empty score is zero rather than undefined`() {
-        val empty = Fixtures.oneMeasure()
+        val empty = Fixtures.run(Fixtures.oneMeasure())
 
-        assertEquals(0.0, PerformanceEvaluator.evaluate(empty, emptyList(), timeline, startedAt).pitch.accuracy)
+        assertEquals(0.0, PerformanceEvaluator.evaluate(empty.score, emptyList(), empty.timeline, startedAt).pitch.accuracy)
     }
 
     @Test
     fun `alignment handles a score whose notes are not in id order`() {
-        val reversed = Fixtures.oneMeasure(
-            ScoreNote("b", Fixtures.D4, Ticks.QUARTER, Ticks.QUARTER),
-            ScoreNote("a", Fixtures.C4, Ticks.ZERO, Ticks.QUARTER),
+        val reversed = Fixtures.run(
+            Fixtures.oneMeasure(
+                ScoreNote("b", Fixtures.D4, Ticks.QUARTER, Ticks.QUARTER),
+                ScoreNote("a", Fixtures.C4, Ticks.ZERO, Ticks.QUARTER),
+            ),
         )
 
-        val result = PerformanceEvaluator.evaluate(reversed, performance(listOf(c4, d4)), timeline, startedAt).pitch
+        val result = PerformanceEvaluator.evaluate(reversed.score, performance(listOf(c4, d4)), reversed.timeline, startedAt).pitch
 
-        assertEquals(listOf("a", "b"), result.outcomes.map { (it as NoteOutcome.Correct).expected.id })
+        assertEquals(listOf("1:a", "1:b"), result.outcomes.map { (it as NoteOutcome.Correct).expected.id })
     }
 }

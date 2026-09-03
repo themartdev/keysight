@@ -6,9 +6,9 @@ import dev.simonmartineau.keysight.score.Pitch
  * One MIDI channel message exactly as it was received, with the moment it arrived.
  *
  * This is the raw record: the three bytes are stored verbatim and [message] is decoded from
- * them on demand, so a stored attempt can always be re-read by a smarter decoder.
+ * them on demand, so a stored run can always be re-read by a smarter decoder.
  *
- * [timestampNanos] is on the `System.nanoTime` base, the same base as the attempt clock, which
+ * [timestampNanos] is on the `System.nanoTime` base, the same base as the run clock, which
  * is what makes it comparable to the scheduled timeline. Android's MIDI framework stamps
  * messages on that base; the transport substitutes the clock when the framework hands it 0.
  */
