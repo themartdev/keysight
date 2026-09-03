@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import dev.simonmartineau.keysight.evaluation.TimingJudgement
+import dev.simonmartineau.keysight.notation.BeamElement
 import dev.simonmartineau.keysight.notation.BravuraMetrics
 import dev.simonmartineau.keysight.notation.Cursor
 import dev.simonmartineau.keysight.notation.Element
@@ -95,7 +96,8 @@ fun DrawScope.drawPage(
  *
  * Glyphs go through the native canvas: SMuFL glyphs are positioned by their baseline
  * origin, which is exactly what `Canvas.drawText` takes, and one em is one staff height, so
- * the text size is four staff spaces. Lines are drawn as Compose lines.
+ * the text size is four staff spaces. Lines are drawn as Compose lines and beams as filled
+ * paths.
  *
  * [marks] tint the elements of the notes they name and add what the layout does not have:
  * the mark under each note, the pitch played instead of a wrong one, and the notes that
@@ -196,7 +198,21 @@ private class GlyphPainter(
                 end = Offset(px(element.x2), py(element.y2)),
                 strokeWidth = (element.thickness * staffSpace).toFloat(),
             )
+            is BeamElement -> drawBeam(element, color)
         }
+    }
+
+    /** The parallelogram between the beam's two ends, each a vertical edge [BeamElement.thickness] tall. */
+    private fun drawBeam(beam: BeamElement, color: Color) {
+        val half = beam.thickness / 2
+        val path = Path().apply {
+            moveTo(px(beam.x1), py(beam.y1 + half))
+            lineTo(px(beam.x2), py(beam.y2 + half))
+            lineTo(px(beam.x2), py(beam.y2 - half))
+            lineTo(px(beam.x1), py(beam.y1 - half))
+            close()
+        }
+        scope.drawPath(path, color)
     }
 
     fun drawGlyph(glyph: Glyph, x: Double, y: Double, scale: Double, color: Color) {

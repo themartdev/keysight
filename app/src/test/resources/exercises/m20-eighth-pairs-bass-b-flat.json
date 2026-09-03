@@ -1,0 +1,81 @@
+{
+  "id": "m20-eighth-pairs-bass-b-flat",
+  "score": {
+    "timeSignature": {
+      "beatsPerMeasure": 4,
+      "beatUnit": 4
+    },
+    "keySignature": -2,
+    "staves": [
+      {
+        "clef": "BASS"
+      }
+    ],
+    "measureCount": 1,
+    "notes": [
+      {
+        "id": "n1",
+        "spelling": {
+          "step": "B",
+          "alteration": -1,
+          "octave": 2
+        },
+        "onset": 0,
+        "duration": 480,
+        "hand": "LEFT"
+      },
+      {
+        "id": "n2",
+        "spelling": {
+          "step": "C",
+          "octave": 3
+        },
+        "onset": 480,
+        "duration": 480,
+        "hand": "LEFT"
+      },
+      {
+        "id": "n3",
+        "spelling": {
+          "step": "D",
+          "octave": 3
+        },
+        "onset": 960,
+        "duration": 960,
+        "hand": "LEFT"
+      },
+      {
+        "id": "n4",
+        "spelling": {
+          "step": "E",
+          "alteration": -1,
+          "octave": 3
+        },
+        "onset": 1920,
+        "duration": 480,
+        "hand": "LEFT"
+      },
+      {
+        "id": "n5",
+        "spelling": {
+          "step": "D",
+          "octave": 3
+        },
+        "onset": 2400,
+        "duration": 480,
+        "hand": "LEFT"
+      },
+      {
+        "id": "n6",
+        "spelling": {
+          "step": "C",
+          "octave": 3
+        },
+        "onset": 2880,
+        "duration": 960,
+        "hand": "LEFT"
+      }
+    ]
+  },
+  "musicalDifficulty": 4
+}

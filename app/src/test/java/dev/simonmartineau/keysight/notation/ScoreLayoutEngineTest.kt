@@ -51,6 +51,16 @@ class ScoreLayoutEngineTest {
     private fun SystemLayout.lines(role: Role) = elements.filterIsInstance<LineElement>().filter { it.role == role }
     private fun SystemLayout.head(noteId: String) = glyphs(Role.NOTEHEAD).single { it.noteId == noteId }
     private fun SystemLayout.stem(noteId: String) = lines(Role.STEM).singleOrNull { it.noteId == noteId }
+    private fun SystemLayout.flag(noteId: String) = glyphs(Role.FLAG).singleOrNull { it.noteId == noteId }
+    private fun SystemLayout.beams() = elements.filterIsInstance<BeamElement>()
+
+    /** One measure of eighths named e1, e2 and so on, each at its onset in ticks. */
+    private fun eighths(vararg notes: Pair<SpelledPitch, Int>): SystemLayout = layout(
+        Fixtures.oneMeasure(*notes.mapIndexed { index, (spelling, onset) -> ScoreNote("e${index + 1}", spelling, Ticks(onset), Ticks.EIGHTH) }.toTypedArray()),
+    )
+
+    /** The y of the beam's centre line at [x]. */
+    private fun BeamElement.yAt(x: Double) = y1 + (y2 - y1) * (x - x1) / (x2 - x1)
     private fun SystemLayout.barlines() = lines(Role.BARLINE)
     private fun SystemLayout.barline() = barlines().first()
 
@@ -230,7 +240,7 @@ class ScoreLayoutEngineTest {
         layout.elements.forEach { element ->
             val noteId = element.noteId
             if (noteId != null) assertTrue(noteId in ids, "$element")
-            val expectsNote = element.role in setOf(Role.NOTEHEAD, Role.STEM, Role.LEDGER, Role.ACCIDENTAL)
+            val expectsNote = element.role in setOf(Role.NOTEHEAD, Role.STEM, Role.LEDGER, Role.ACCIDENTAL, Role.FLAG)
             assertEquals(expectsNote, noteId != null, "$element")
         }
     }
@@ -471,5 +481,116 @@ class ScoreLayoutEngineTest {
 
         assertEquals(3.0 - ScoreLayoutEngine.STAFF_DISTANCE, rest.y)
         assertEquals(Ticks.ZERO, rest.ticks)
+    }
+
+    @Test
+    fun `a lone eighth hangs a flag from its stem tip, up on the right and down on the left`() {
+        val up = single(Fixtures.C4, Ticks.EIGHTH)
+        val upStem = up.stem("n")!!
+        val upFlag = up.flag("n")!!
+        val upAnchor = BravuraMetrics.of(Glyph.FLAG_8TH_UP).stemUpNW!!
+        assertEquals(Glyph.FLAG_8TH_UP, upFlag.glyph)
+        assertEquals(upStem.x1 - BravuraMetrics.STEM_THICKNESS / 2, upFlag.x + upAnchor.x, 1e-9, "the anchor is the stem's top left corner")
+        assertEquals(upStem.y2, upFlag.y + upAnchor.y, 1e-9)
+        assertEquals(upStem.y1 + ScoreLayoutEngine.STEM_LENGTH, upStem.y2, 1e-9, "a flag does not lengthen the stem")
+        assertEquals(Ticks.ZERO, upFlag.ticks)
+        assertEquals(emptyList(), up.beams())
+
+        val down = single(c6, Ticks.EIGHTH)
+        val downStem = down.stem("n")!!
+        val downFlag = down.flag("n")!!
+        val downAnchor = BravuraMetrics.of(Glyph.FLAG_8TH_DOWN).stemDownSW!!
+        assertEquals(Glyph.FLAG_8TH_DOWN, downFlag.glyph)
+        assertEquals(downStem.x1 - BravuraMetrics.STEM_THICKNESS / 2, downFlag.x + downAnchor.x, 1e-9, "the anchor is the stem's bottom left corner")
+        assertEquals(downStem.y2, downFlag.y + downAnchor.y, 1e-9)
+
+        assertNull(single(Fixtures.C4, Ticks.QUARTER).flag("n"))
+        assertNull(single(Fixtures.C4, Ticks.HALF).flag("n"))
+    }
+
+    @Test
+    fun `two eighths on a beat share a beam and lose their flags`() {
+        val layout = eighths(Fixtures.C4 to 0, Fixtures.C4 to 480)
+        val beam = layout.beams().single()
+        val first = layout.stem("e1")!!
+        val second = layout.stem("e2")!!
+
+        assertEquals(emptyList(), layout.glyphs(Role.FLAG))
+        assertEquals(BravuraMetrics.BEAM_THICKNESS, beam.thickness)
+        assertEquals(beam.y1, beam.y2, "level heads, level beam")
+        assertEquals(first.y2, second.y2)
+        assertEquals(first.y1 + ScoreLayoutEngine.STEM_LENGTH, first.y2, 1e-9, "the stems keep their length")
+        assertEquals(first.y2, beam.y1 + beam.thickness / 2, 1e-9, "the beam's outer edge is at the stem tips")
+        assertEquals(first.x1 - BravuraMetrics.STEM_THICKNESS / 2, beam.x1, 1e-9)
+        assertEquals(second.x1 + BravuraMetrics.STEM_THICKNESS / 2, beam.x2, 1e-9)
+        assertEquals(Role.BEAM, beam.role)
+        assertNull(beam.noteId, "a beam belongs to both notes")
+        assertEquals(Ticks.ZERO, beam.ticks)
+        assertTrue(Mask.ALL.hides(beam))
+        assertTrue(Spacing.advanceFor(Ticks.EIGHTH, blackHead.width) < Spacing.advanceFor(Ticks.QUARTER, blackHead.width))
+        assertEquals(layout.head("e1").x + Spacing.advanceFor(Ticks.EIGHTH, blackHead.width), layout.head("e2").x, 1e-9)
+    }
+
+    @Test
+    fun `a beam never crosses a beat`() {
+        val acrossTheBeat = eighths(Fixtures.C4 to 480, Fixtures.C4 to 960)
+        assertEquals(emptyList(), acrossTheBeat.beams())
+        assertEquals(listOf("e1", "e2"), acrossTheBeat.glyphs(Role.FLAG).map { it.noteId })
+
+        val three = eighths(Fixtures.C4 to 0, Fixtures.C4 to 480, Fixtures.C4 to 960)
+        assertEquals(1, three.beams().size)
+        assertEquals(listOf("e3"), three.glyphs(Role.FLAG).map { it.noteId })
+        assertEquals(3, three.lines(Role.STEM).size)
+
+        val twoPairs = eighths(Fixtures.C4 to 0, Fixtures.D4 to 480, Fixtures.E4 to 1920, Fixtures.F4 to 2400)
+        assertEquals(listOf(Ticks.ZERO, Ticks.HALF), twoPairs.beams().map { it.ticks })
+    }
+
+    @Test
+    fun `a beamed group's stems follow the head farthest from the middle line and the beam slants with the heads`() {
+        // F4 is three steps under the middle line, C5 one over: the group's stems go up.
+        val up = eighths(Fixtures.F4 to 0, SpelledPitch(Step.C, octave = 5) to 480)
+        val f = up.stem("e1")!!
+        val c = up.stem("e2")!!
+        val upBeam = up.beams().single()
+        assertEquals(up.head("e2").x + blackHead.stemUpSE!!.x - BravuraMetrics.STEM_THICKNESS / 2, c.x1, 1e-9, "C5's stem is on its right")
+        assertEquals(c.y1 + ScoreLayoutEngine.STEM_LENGTH, c.y2, 1e-9, "the stem nearest the beam has its own length")
+        assertEquals(ScoreLayoutEngine.MAX_BEAM_RISE, c.y2 - f.y2, 1e-9, "a fifth rises the most a beam may")
+        assertTrue(f.y2 > f.y1 + ScoreLayoutEngine.STEM_LENGTH, "the other stem is longer")
+        assertEquals(f.y2, upBeam.yAt(f.x1) + upBeam.thickness / 2, 1e-9)
+        assertEquals(c.y2, upBeam.yAt(c.x1) + upBeam.thickness / 2, 1e-9)
+
+        // C5 and B4, a second down: stems down, the beam falling a quarter of a space.
+        val down = eighths(SpelledPitch(Step.C, octave = 5) to 0, b4 to 480)
+        val c5 = down.stem("e1")!!
+        val b = down.stem("e2")!!
+        val downBeam = down.beams().single()
+        assertEquals(down.head("e1").x + blackHead.stemDownNW!!.x + BravuraMetrics.STEM_THICKNESS / 2, c5.x1, 1e-9, "C5's stem is on its left")
+        assertEquals(b.y1 - ScoreLayoutEngine.STEM_LENGTH, b.y2, 1e-9)
+        assertEquals(0.5 * ScoreLayoutEngine.BEAM_SLANT, c5.y2 - b.y2, 1e-9)
+        assertEquals(c5.y2, downBeam.yAt(c5.x1) - downBeam.thickness / 2, 1e-9, "the outer edge is below the centre line for down stems")
+
+        // G4 and D5 are two steps either side of the middle line: level, the stems go down.
+        val level = eighths(Fixtures.G4 to 0, SpelledPitch(Step.D, octave = 5) to 480)
+        assertTrue(level.stem("e1")!!.y2 < level.stem("e1")!!.y1)
+        assertTrue(level.stem("e2")!!.y2 < level.stem("e2")!!.y1)
+
+        // A leap the other way: the beam falls, capped at the same rise.
+        val falling = eighths(SpelledPitch(Step.C, octave = 5) to 0, Fixtures.F4 to 480)
+        val fallingBeam = falling.beams().single()
+        assertEquals(-ScoreLayoutEngine.MAX_BEAM_RISE, falling.stem("e2")!!.y2 - falling.stem("e1")!!.y2, 1e-9)
+        assertTrue(fallingBeam.y2 < fallingBeam.y1)
+    }
+
+    @Test
+    fun `eighths on a ledger line still reach the middle line and stay inside the envelope`() {
+        val low = eighths(a3 to 0, a3 to 480)
+        assertEquals(StaffPosition.MIDDLE_LINE.y, low.stem("e1")!!.y2)
+        assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, low.top)
+        assertEquals(ScoreLayoutEngine.ENVELOPE_BOTTOM, low.bottom)
+        val high = eighths(c6 to 0, a5 to 480)
+        assertEquals(high.stem("e2")!!.y1 - ScoreLayoutEngine.STEM_LENGTH, high.stem("e2")!!.y2, 1e-9, "A5, nearest the beam, keeps its own length")
+        assertTrue(high.stem("e1")!!.y2 < StaffPosition.MIDDLE_LINE.y, "C6's stem runs past the middle line to the beam")
+        assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, high.top)
     }
 }

@@ -5,8 +5,10 @@ import dev.simonmartineau.keysight.score.Score
 import dev.simonmartineau.keysight.score.ScoreNote
 import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sign
 
 /**
  * Lays out a [Score] as systems of measures across all of its staves, in staff spaces.
@@ -18,11 +20,12 @@ import kotlin.math.min
  * stretches the room after each column so the last barline reaches the edge, up to
  * [MAX_STRETCH]; the fixed parts, signatures and accidentals, never stretch.
  *
- * Every rule the generator round extends is a small function here: which head a duration
- * takes, where a stem starts and how long it is, which ledger lines a position needs, how much
- * room a duration gets, when an accidental is written. Chords are laid out with every head at
- * the column's x, which is right until two heads a second apart need offsetting; that, rests
- * shorter than a measure and flags are for later.
+ * Every rule a generator dimension extends is a small function here: which head a duration
+ * takes, where a stem starts and how long it is, which notes are beamed and where the beam
+ * goes, which ledger lines a position needs, how much room a duration gets, when an accidental
+ * is written. Chords are laid out with every head at the column's x, which is right until two
+ * heads a second apart need offsetting; that, rests shorter than a measure, dots and a second
+ * beam are for later.
  */
 object ScoreLayoutEngine {
 
@@ -36,6 +39,10 @@ object ScoreLayoutEngine {
     const val MEASURE_START_GAP = 1.5
     const val FINAL_BARLINE_GAP = 0.4
     const val STEM_LENGTH = 3.5
+
+    /** How much of the distance between a beam's first and last heads the beam rises, up to [MAX_BEAM_RISE]. */
+    const val BEAM_SLANT = 0.5
+    const val MAX_BEAM_RISE = 1.0
 
     /** How far a column's room may grow to fill a system. */
     const val MAX_STRETCH = 1.6
@@ -223,7 +230,19 @@ object ScoreLayoutEngine {
 
     // Measures: planned at natural spacing first, so a system knows what fits, then placed.
 
-    private class PlannedNote(val note: ScoreNote, val frame: StaffFrame, val position: StaffPosition, val head: Glyph, val accidental: Glyph?)
+    /**
+     * One note as the plan sees it. [stemUp] is the note's own rule, or its beam group's when
+     * it has one; a [beamed] note's stem is drawn with its group once the columns are placed.
+     */
+    private class PlannedNote(
+        val note: ScoreNote,
+        val frame: StaffFrame,
+        val position: StaffPosition,
+        val head: Glyph,
+        val accidental: Glyph?,
+        val stemUp: Boolean,
+        val beamed: Boolean,
+    )
 
     private class Column(val onset: Ticks, val notes: List<PlannedNote>) {
         val accidentalRoom: Double = notes.maxOf { planned ->
@@ -232,7 +251,14 @@ object ScoreLayoutEngine {
         val advance: Double = notes.minOf { Spacing.advanceFor(it.note.duration, BravuraMetrics.of(it.head).width) }
     }
 
-    private class MeasurePlan(val measure: Int, val start: Ticks, val end: Ticks, val columns: List<Column>, val resting: List<StaffFrame>) {
+    private class MeasurePlan(
+        val measure: Int,
+        val start: Ticks,
+        val end: Ticks,
+        val columns: List<Column>,
+        val beams: List<List<PlannedNote>>,
+        val resting: List<StaffFrame>,
+    ) {
         val fixedWidth: Double = columns.sumOf { it.accidentalRoom }
         val stretchableWidth: Double = if (columns.isEmpty()) EMPTY_MEASURE_WIDTH else columns.sumOf { it.advance }
         val naturalWidth: Double get() = fixedWidth + stretchableWidth
@@ -242,23 +268,65 @@ object ScoreLayoutEngine {
     private fun planMeasure(score: Score, measure: Int, frames: List<StaffFrame>): MeasurePlan {
         val start = score.measureStart(measure)
         val states = frames.map { AccidentalState(score.keySignature) }
-        val columns = score.notesInMeasure(measure)
-            .sortedWith(compareBy({ it.onset }, { it.staff }, { it.pitch }))
-            .groupBy { it.onset }
-            .map { (onset, notes) ->
-                Column(
-                    onset,
-                    notes.map { note ->
-                        val frame = frames[note.staff]
-                        PlannedNote(note, frame, StaffPosition.of(note.spelling, frame.clef), headFor(note.duration), states[note.staff].accidentalFor(note.spelling))
-                    },
-                )
-            }
+        val notes = score.notesInMeasure(measure).sortedWith(compareBy({ it.onset }, { it.staff }, { it.pitch }))
+        val groups = beamGroups(notes, score.timeSignature)
+        val groupStemUp = HashMap<String, Boolean>()
+        for (group in groups) {
+            val up = stemUpFor(group.map { StaffPosition.of(it.spelling, frames[it.staff].clef) })
+            group.forEach { groupStemUp[it.id] = up }
+        }
+        val planned = HashMap<String, PlannedNote>()
+        val columns = notes.groupBy { it.onset }.map { (onset, columnNotes) ->
+            Column(
+                onset,
+                columnNotes.map { note ->
+                    val frame = frames[note.staff]
+                    val position = StaffPosition.of(note.spelling, frame.clef)
+                    PlannedNote(
+                        note = note,
+                        frame = frame,
+                        position = position,
+                        head = headFor(note.duration),
+                        accidental = states[note.staff].accidentalFor(note.spelling),
+                        stemUp = groupStemUp[note.id] ?: position.stemUp,
+                        beamed = note.id in groupStemUp,
+                    ).also { planned[note.id] = it }
+                },
+            )
+        }
+        val beams = groups.map { group -> group.map { planned.getValue(it.id) } }
         val sounding = columns.flatMap { column -> column.notes.map { it.frame.index } }.toSet()
-        return MeasurePlan(measure, start, start + score.timeSignature.ticksPerMeasure, columns, frames.filter { it.index !in sounding })
+        return MeasurePlan(measure, start, start + score.timeSignature.ticksPerMeasure, columns, beams, frames.filter { it.index !in sounding })
     }
 
-    /** Places one measure's columns and rests from [x] and returns where its barline goes. */
+    /**
+     * The beaming rule: on each staff and voice, flagged notes whose onsets fall in the same
+     * beat are beamed together, so a beam never crosses a beat, and a flagged note alone in
+     * its beat keeps its flag. Groups keep the order of [notes]; a chord's notes are in one
+     * group together. The beat is the time signature's; compound meters need their own
+     * grouping when they come.
+     */
+    private fun beamGroups(notes: List<ScoreNote>, timeSignature: TimeSignature): List<List<ScoreNote>> {
+        fun beatOf(note: ScoreNote) = note.onset.value / timeSignature.ticksPerBeat.value
+        return notes.filter { isFlagged(it.duration) }.groupBy { it.staff to it.voice }.values.flatMap { line ->
+            val groups = ArrayList<MutableList<ScoreNote>>()
+            for (note in line) {
+                val open = groups.lastOrNull()
+                if (open != null && beatOf(open.last()) == beatOf(note)) open += note else groups += mutableListOf(note)
+            }
+            groups.filter { group -> group.distinctBy { it.onset }.size > 1 }
+        }
+    }
+
+    /** A beamed group's stems follow the head farthest from the middle line; level, they go down like a note on the line. */
+    private fun stemUpFor(positions: List<StaffPosition>): Boolean {
+        val middle = StaffPosition.MIDDLE_LINE.value
+        val below = positions.maxOf { middle - it.value }
+        val above = positions.maxOf { it.value - middle }
+        return below > above
+    }
+
+    /** Places one measure's columns, beams and rests from [x] and returns where its barline goes. */
     private fun placeMeasure(
         plan: MeasurePlan,
         x: Double,
@@ -275,6 +343,7 @@ object ScoreLayoutEngine {
             timeAxis += TimePoint(column.onset, headX)
             columnX = headX + column.advance * stretch
         }
+        for (group in plan.beams) placeBeam(group, anchors, elements)
         if (plan.columns.isEmpty()) {
             timeAxis += TimePoint(plan.start, x)
             columnX = x + EMPTY_MEASURE_WIDTH * stretch
@@ -314,9 +383,39 @@ object ScoreLayoutEngine {
             )
         }
 
-        stemFor(note, planned.position, frame, headX, head)?.let { elements += it }
+        val stem = stemFor(planned, headX)
+        if (stem != null && !planned.beamed) {
+            elements += stemLine(planned, stem, stem.tip)
+            if (isFlagged(note.duration)) elements += flagFor(planned, stem)
+        }
 
         anchors[note.id] = NoteAnchor(note.id, headX, planned.position, head.width, frame.index, frame.baselineY, note.onset)
+    }
+
+    /**
+     * A beamed group's stems and beam, once its heads are placed. The beam follows the first
+     * and last heads of the group, rising [BEAM_SLANT] of their distance up to
+     * [MAX_BEAM_RISE], and sits where the stem nearest it has exactly its own length; every
+     * other stem is longer, and the beam's outer edge is at the stem tips.
+     */
+    private fun placeBeam(group: List<PlannedNote>, anchors: Map<String, NoteAnchor>, elements: MutableList<Element>) {
+        val stems = group.map { planned -> planned to checkNotNull(stemFor(planned, anchors.getValue(planned.note.id).x)) { "${planned.note.id} is beamed without a stem" } }
+        val direction = if (group.first().stemUp) 1.0 else -1.0
+        val first = stems.first().second
+        val last = stems.last().second
+        val run = last.x - first.x
+        val dy = last.start - first.start
+        val rise = if (run > 0.0) sign(dy) * min(abs(dy) * BEAM_SLANT, MAX_BEAM_RISE) else 0.0
+        val slope = if (run > 0.0) rise / run else 0.0
+        val reach = stems.maxOf { (_, stem) -> direction * (stem.tip - slope * (stem.x - first.x)) }
+        fun tipAt(x: Double) = direction * reach + slope * (x - first.x)
+
+        for ((planned, stem) in stems) elements += stemLine(planned, stem, tipAt(stem.x))
+        val halfStem = BravuraMetrics.STEM_THICKNESS / 2
+        val inset = direction * BravuraMetrics.BEAM_THICKNESS / 2
+        val x1 = first.x - halfStem
+        val x2 = last.x + halfStem
+        elements += BeamElement(x1, tipAt(x1) - inset, x2, tipAt(x2) - inset, BravuraMetrics.BEAM_THICKNESS, group.first().note.onset)
     }
 
     /** A barline through every staff at [x]; the final one adds a thick line. Returns the x after it. */
@@ -343,41 +442,56 @@ object ScoreLayoutEngine {
         else -> Glyph.NOTEHEAD_BLACK
     }
 
+    /** Shorter than a quarter takes a flag or a beam; one of each, since a second one, for sixteenths, waits like dots and rests do. */
+    private fun isFlagged(duration: Ticks): Boolean = duration < Ticks.QUARTER
+
+    /** Where a note's stem goes: its x, where it leaves the head and where its tip would be on its own. */
+    private class Stem(val x: Double, val start: Double, val tip: Double)
+
     /**
      * Stems go up on the right of heads below the middle line and down on the left of the
      * others, one octave long, and reach the middle line when the head is on a ledger
      * line, so a far note's stem is never a stub. Whole notes have none.
      */
-    private fun stemFor(note: ScoreNote, position: StaffPosition, frame: StaffFrame, headX: Double, head: GlyphMetrics): LineElement? {
-        if (note.duration >= Ticks.WHOLE) return null
+    private fun stemFor(planned: PlannedNote, headX: Double): Stem? {
+        if (planned.note.duration >= Ticks.WHOLE) return null
+        val head = BravuraMetrics.of(planned.head)
         val halfThickness = BravuraMetrics.STEM_THICKNESS / 2
-        val middle = frame.baselineY + StaffPosition.MIDDLE_LINE.y
-        val headY = frame.baselineY + position.y
-        val stemX: Double
-        val start: Double
-        val tip: Double
-        if (position.stemUp) {
-            val anchor = checkNotNull(head.stemUpSE) { "${note.id}: $head has no stem anchor" }
-            stemX = headX + anchor.x - halfThickness
-            start = headY + anchor.y
-            tip = max(start + STEM_LENGTH, middle)
+        val middle = planned.frame.baselineY + StaffPosition.MIDDLE_LINE.y
+        val headY = planned.frame.baselineY + planned.position.y
+        return if (planned.stemUp) {
+            val anchor = checkNotNull(head.stemUpSE) { "${planned.note.id}: $head has no stem anchor" }
+            val start = headY + anchor.y
+            Stem(headX + anchor.x - halfThickness, start, max(start + STEM_LENGTH, middle))
         } else {
-            val anchor = checkNotNull(head.stemDownNW) { "${note.id}: $head has no stem anchor" }
-            stemX = headX + anchor.x + halfThickness
-            start = headY + anchor.y
-            tip = min(start - STEM_LENGTH, middle)
+            val anchor = checkNotNull(head.stemDownNW) { "${planned.note.id}: $head has no stem anchor" }
+            val start = headY + anchor.y
+            Stem(headX + anchor.x + halfThickness, start, min(start - STEM_LENGTH, middle))
         }
-        return LineElement(stemX, start, stemX, tip, BravuraMetrics.STEM_THICKNESS, Role.STEM, note.id, note.onset)
+    }
+
+    private fun stemLine(planned: PlannedNote, stem: Stem, tip: Double) =
+        LineElement(stem.x, stem.start, stem.x, tip, BravuraMetrics.STEM_THICKNESS, Role.STEM, planned.note.id, planned.note.onset)
+
+    /** The flag hangs from the stem tip: its SMuFL anchor sits on the stem's outer left corner. */
+    private fun flagFor(planned: PlannedNote, stem: Stem): GlyphElement {
+        val glyph = if (planned.stemUp) Glyph.FLAG_8TH_UP else Glyph.FLAG_8TH_DOWN
+        val metrics = BravuraMetrics.of(glyph)
+        val anchor = checkNotNull(if (planned.stemUp) metrics.stemUpNW else metrics.stemDownSW) { "$glyph has no stem anchor" }
+        val stemLeft = stem.x - BravuraMetrics.STEM_THICKNESS / 2
+        return GlyphElement(glyph, stemLeft - anchor.x, stem.tip - anchor.y, Role.FLAG, planned.note.id, planned.note.onset)
     }
 
     private fun topOf(element: Element): Double = when (element) {
         is GlyphElement -> element.y + BravuraMetrics.of(element.glyph).top * element.scale
         is LineElement -> max(element.y1, element.y2) + element.thickness / 2
+        is BeamElement -> max(element.y1, element.y2) + element.thickness / 2
     }
 
     private fun bottomOf(element: Element): Double = when (element) {
         is GlyphElement -> element.y + BravuraMetrics.of(element.glyph).bottom * element.scale
         is LineElement -> min(element.y1, element.y2) - element.thickness / 2
+        is BeamElement -> min(element.y1, element.y2) - element.thickness / 2
     }
 
     /** A whole rest hangs from the fourth line. */

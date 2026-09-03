@@ -9,12 +9,13 @@ import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
 import kotlinx.serialization.Serializable
 
-/** A note value the generator may write. Nothing shorter than a quarter until the layout draws flags. */
+/** A note value the generator may write. Nothing shorter than an eighth until the layout draws a second beam. */
 @Serializable
 enum class NoteValue(val ticks: Ticks) {
     WHOLE(Ticks.WHOLE),
     HALF(Ticks.HALF),
     QUARTER(Ticks.QUARTER),
+    EIGHTH(Ticks.EIGHTH),
 }
 
 /**
@@ -66,7 +67,7 @@ data class ExerciseConfig(
     val accompaniment: Accompaniment = Accompaniment.NONE,
     val rightHandRange: PitchRange = DEFAULT_RIGHT_HAND_RANGE,
     val leftHandRange: PitchRange = DEFAULT_LEFT_HAND_RANGE,
-    val noteValues: Set<NoteValue> = NoteValue.entries.toSet(),
+    val noteValues: Set<NoteValue> = DEFAULT_NOTE_VALUES,
     val maxInterval: Int = 2,
     val timeSignature: TimeSignature = TimeSignature.FOUR_FOUR,
 ) {
@@ -95,13 +96,22 @@ data class ExerciseConfig(
     }
 
     /**
-     * Every way to fill one measure with the allowed values, longest value first at every
-     * position, so the vocabulary is enumerated in one fixed order: in 4/4 with every value,
-     * whole; half half; half quarter quarter; quarter half quarter; quarter quarter half;
-     * four quarters.
+     * Every readable way to fill one measure with the allowed values, longest value first at
+     * every position, so the vocabulary is enumerated in one fixed order: in 4/4 with wholes
+     * to quarters, whole; half half; half quarter quarter; quarter half quarter; quarter
+     * quarter half; four quarters. Readable means [mayStartAt]: only a note shorter than the
+     * beat starts off the beat, so eighths come in pairs that fill a beat and nothing is
+     * syncopated.
      */
     val rhythms: List<List<NoteValue>>
-        get() = rhythmsFilling(noteValues, timeSignature.ticksPerMeasure)
+        get() = rhythmsFilling(noteValues, timeSignature)
+
+    /**
+     * Whether a note of [duration] may start at [onset]: on a beat, or anywhere when it is
+     * shorter than the beat. Syncopation, a longer note off the beat, is a rung of its own
+     * for later; until then every note at least a beat long lands on the pulse.
+     */
+    fun mayStartAt(duration: Ticks, onset: Ticks): Boolean = mayStartAt(duration, onset, timeSignature)
 
     companion object {
         /** Wider than an octave is never a sight-reading interval for this trainer. */
@@ -111,12 +121,20 @@ data class ExerciseConfig(
         val DEFAULT_RIGHT_HAND_RANGE = PitchRange(SpelledPitch(Step.C, octave = 4), SpelledPitch(Step.G, octave = 4))
         val DEFAULT_LEFT_HAND_RANGE = PitchRange(SpelledPitch(Step.C, octave = 3), SpelledPitch(Step.G, octave = 3))
 
+        /** Wholes to quarters: where every player starts, and what every configuration stored before eighths meant. */
+        val DEFAULT_NOTE_VALUES: Set<NoteValue> = setOf(NoteValue.WHOLE, NoteValue.HALF, NoteValue.QUARTER)
+
         val DEFAULT = ExerciseConfig(KeySignature.C_MAJOR, Hands.RIGHT)
     }
 }
 
-/** Every way to fill [measure] with [values], longest value first at every position; empty when none does. */
-fun rhythmsFilling(values: Set<NoteValue>, measure: Ticks): List<List<NoteValue>> {
+/**
+ * Every way to fill a measure of [timeSignature] with [values] in which only a note shorter
+ * than the beat starts off the beat, longest value first at every position; empty when none
+ * does.
+ */
+fun rhythmsFilling(values: Set<NoteValue>, timeSignature: TimeSignature): List<List<NoteValue>> {
+    val measure = timeSignature.ticksPerMeasure
     val ordered = values.sortedByDescending { it.ticks }
     val result = ArrayList<List<NoteValue>>()
     fun fill(prefix: List<NoteValue>, filled: Ticks) {
@@ -125,9 +143,13 @@ fun rhythmsFilling(values: Set<NoteValue>, measure: Ticks): List<List<NoteValue>
             return
         }
         for (value in ordered) {
-            if (filled + value.ticks <= measure) fill(prefix + value, filled + value.ticks)
+            if (filled + value.ticks <= measure && mayStartAt(value.ticks, filled, timeSignature)) fill(prefix + value, filled + value.ticks)
         }
     }
     fill(emptyList(), Ticks.ZERO)
     return result
 }
+
+/** The vocabulary's readability rule, [ExerciseConfig.mayStartAt]. */
+private fun mayStartAt(duration: Ticks, onset: Ticks, timeSignature: TimeSignature): Boolean =
+    duration < timeSignature.ticksPerBeat || onset.value % timeSignature.ticksPerBeat.value == 0

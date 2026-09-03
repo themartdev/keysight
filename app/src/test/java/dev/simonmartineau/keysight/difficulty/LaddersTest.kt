@@ -43,7 +43,14 @@ class LaddersTest {
         assertEquals(RunConfig.LOOKAHEAD_LADDER_BEATS, Ladders.LOOKAHEAD.rungs)
         assertTrue(RunConfig.DEFAULT.lookaheadBeats in Ladders.LOOKAHEAD.rungs)
         assertEquals(Ladders.RANGE.easiest, MusicalLevel.DEFAULT.ranges, "the player starts at the five-finger position")
-        assertEquals(Ladders.RHYTHM.hardest, MusicalLevel.DEFAULT.noteValues, "quarters are the top of the rhythm ladder until eighths come")
+        assertEquals(Ladders.RHYTHM.rungs[1], MusicalLevel.DEFAULT.noteValues, "the player starts on quarters, one rung under eighths")
+        assertEquals(
+            listOf(NoteValue.HALF, NoteValue.QUARTER, NoteValue.EIGHTH),
+            Ladders.RHYTHM.rungs.map { rung -> rung.minBy { it.ticks } },
+            "each rhythm rung adds the next shorter value",
+        )
+        assertEquals(setOf(NoteValue.WHOLE, NoteValue.HALF, NoteValue.QUARTER, NoteValue.EIGHTH), Ladders.RHYTHM.step(MusicalLevel.DEFAULT.noteValues, Direction.UP))
+        assertNull(Ladders.RHYTHM.step(Ladders.RHYTHM.hardest, Direction.UP))
     }
 
     @Test
@@ -85,7 +92,7 @@ class LaddersTest {
 
     @Test
     fun `every level on the ladders is a configuration the generator satisfies for every hands`() {
-        assertEquals(6 * 5 * 2 - 3 * 2, levels.size, "sixths and octaves need more than five notes, octaves more than six")
+        assertEquals(6 * 5 * 3 - 3 * 3, levels.size, "sixths and octaves need more than five notes, octaves more than six")
         levels.forEach { level ->
             bases.forEach { base ->
                 val config = level.applyTo(base)
@@ -118,12 +125,13 @@ class LaddersTest {
     fun `a level is described in words, one per dimension`() {
         assertEquals("Up to thirds, five notes, quarter notes.", MusicalLevel.DEFAULT.description)
         val hardest = MusicalLevel(7, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest)
-        assertEquals("Up to octaves, a twelfth, quarter notes.", hardest.description)
+        assertEquals("Up to octaves, a twelfth, eighth notes.", hardest.description)
         val easiest = MusicalLevel(1, Ladders.RANGE.easiest.right, Ladders.RANGE.easiest.left, Ladders.RHYTHM.easiest)
         assertEquals("Steps only, five notes, half notes.", easiest.description)
         assertEquals("an octave", MusicalLevel.rangeLabel(8))
         assertEquals("up to fifths", MusicalLevel.intervalLabel(4))
         assertEquals("whole notes", MusicalLevel.rhythmLabel(NoteValue.WHOLE))
+        assertEquals("eighth notes", MusicalLevel.rhythmLabel(NoteValue.EIGHTH))
     }
 
     @Test

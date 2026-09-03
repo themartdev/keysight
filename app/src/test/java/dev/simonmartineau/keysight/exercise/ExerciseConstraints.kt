@@ -32,6 +32,7 @@ fun ExerciseConfig.violations(score: Score): List<String> {
     melody.forEach { note ->
         if (note.onset != expectedOnset) problems += "${note.id} starts at ${note.onset}, not $expectedOnset"
         if (note.duration !in allowed) problems += "${note.id} lasts ${note.duration}, not one of $noteValues"
+        if (!mayStartAt(note.duration, note.onset)) problems += "${note.id} lasts ${note.duration} and starts off the beat at ${note.onset}"
         if (note.spelling !in range) problems += "${note.id} is ${note.spelling}, outside $range"
         if (note.spelling.alteration != 0) problems += "${note.id} is ${note.spelling}, not natural"
         if (note.voice != note.staff) problems += "${note.id} is in voice ${note.voice} on staff ${note.staff}"

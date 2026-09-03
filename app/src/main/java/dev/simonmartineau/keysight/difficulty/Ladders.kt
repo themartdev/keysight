@@ -23,8 +23,8 @@ data class HandRanges(val right: PitchRange, val left: PitchRange) {
  * are rarer in sight-reading material than the octave that follows them. The range ladder
  * grows each hand from its five-finger position, upward first for the right hand and
  * downward first for the left, every rung holding a tone of the tonic triad so the held
- * note of a hands-together bar always has one. The rhythm ladder ends at quarters until the
- * layout draws flags; eighths are the next rung when they come.
+ * note of a hands-together bar always has one. The rhythm ladder adds one shorter value per
+ * rung, eighths last; sixteenths, dots and rests are rungs for when the layout draws them.
  */
 object Ladders {
 
@@ -47,6 +47,7 @@ object Ladders {
         listOf(
             setOf(NoteValue.WHOLE, NoteValue.HALF),
             setOf(NoteValue.WHOLE, NoteValue.HALF, NoteValue.QUARTER),
+            setOf(NoteValue.WHOLE, NoteValue.HALF, NoteValue.QUARTER, NoteValue.EIGHTH),
         ),
     ) { -it.minOf { value -> value.ticks.value }.toDouble() }
 

@@ -32,6 +32,9 @@ class ExerciseGeneratorTest {
         ExerciseConfig.DEFAULT.copy(maxInterval = 7, rightHandRange = PitchRange(SpelledPitch(Step.A, octave = 3), SpelledPitch(Step.C, octave = 6))),
         ExerciseConfig.DEFAULT.copy(noteValues = setOf(NoteValue.QUARTER)),
         ExerciseConfig.DEFAULT.copy(noteValues = setOf(NoteValue.WHOLE)),
+        ExerciseConfig.DEFAULT.copy(noteValues = NoteValue.entries.toSet()),
+        ExerciseConfig.DEFAULT.copy(noteValues = setOf(NoteValue.QUARTER, NoteValue.EIGHTH), hands = Hands.BOTH, accompaniment = Accompaniment.HELD_NOTE),
+        ExerciseConfig.DEFAULT.copy(noteValues = NoteValue.entries.toSet(), timeSignature = TimeSignature.THREE_FOUR),
         ExerciseConfig.DEFAULT.copy(timeSignature = TimeSignature.THREE_FOUR),
         ExerciseConfig.DEFAULT.copy(rightHandRange = PitchRange(SpelledPitch(Step.E, octave = 4), SpelledPitch(Step.E, octave = 4))),
     )
@@ -61,15 +64,48 @@ class ExerciseGeneratorTest {
         assertNotEquals(ExerciseGenerator.generate(ExerciseConfig.DEFAULT, 1L), ExerciseGenerator.generate(ExerciseConfig.DEFAULT, 2L))
     }
 
+    /**
+     * Recorded before eighths existed, so a stored seed still means what it meant: adding a
+     * value to the enum changed no configuration without it.
+     */
     @Test
-    fun `the generator's output is pinned, so a stored seed still means what it meant`() {
-        val score = ExerciseGenerator.generate(ExerciseConfig.DEFAULT, seed = 1L)
+    fun `the generator's output is pinned for configurations without eighths`() {
+        fun pinned(config: ExerciseConfig, seed: Long) =
+            ExerciseGenerator.generate(config, seed).notes.map { "${it.spelling}:${it.duration.value}:${it.staff}" }
 
-        assertEquals(
-            listOf("F4:1920t", "F4:960t", "D4:960t"),
-            score.notes.map { "${it.spelling}:${it.duration}" },
-        )
+        assertEquals(listOf("F4:1920:0", "F4:960:0", "D4:960:0"), pinned(ExerciseConfig.DEFAULT, 1L))
+        assertEquals(listOf("D4:960:0", "D4:960:0", "C4:960:0", "D4:960:0"), pinned(ExerciseConfig.DEFAULT, 2L))
+        assertEquals(listOf("G4:3840:0"), pinned(ExerciseConfig.DEFAULT, 3L))
+        assertEquals(listOf("G3:1920:0", "E3:1920:0"), pinned(ExerciseConfig.DEFAULT.copy(hands = Hands.LEFT), 4L))
+        assertEquals(listOf("E4:960:0", "G4:1920:0", "G4:960:0"), pinned(ExerciseConfig.DEFAULT.copy(hands = Hands.BOTH), 3L))
+        assertEquals(listOf("C3:960:1", "E3:1920:1", "F3:960:1"), pinned(ExerciseConfig.DEFAULT.copy(hands = Hands.BOTH), 4L))
+        val together = ExerciseConfig.DEFAULT.copy(hands = Hands.BOTH, accompaniment = Accompaniment.HELD_NOTE)
+        assertEquals(listOf("G3:3840:1", "C4:3840:0"), pinned(together, 2L))
+        assertEquals(listOf("E4:960:0", "G4:1920:0", "G4:960:0", "G3:3840:1"), pinned(together, 3L))
+        assertEquals(listOf("G4:1920:0", "E4:960:0"), pinned(ExerciseConfig.DEFAULT.copy(timeSignature = TimeSignature.THREE_FOUR), 3L))
+        assertEquals(listOf("D4:1920:0", "D4:1920:0"), pinned(ExerciseConfig.DEFAULT.copy(noteValues = setOf(NoteValue.WHOLE, NoteValue.HALF)), 2L))
+        assertEquals(listOf("A3:960:0", "C4:960:0", "G3:960:0", "A3:960:0"), pinned(ExerciseConfig.DEFAULT.copy(keySignature = KeySignature(1), maxInterval = 4), 2L))
         assertEquals(1, ExerciseGenerator.GENERATOR_VERSION)
+    }
+
+    @Test
+    fun `with eighths every rhythm of the vocabulary comes up, in pairs on the beat`() {
+        val config = ExerciseConfig.DEFAULT.copy(noteValues = NoteValue.entries.toSet())
+        val scores = (0L until 1000L).map { ExerciseGenerator.generateInC(config, it) }
+
+        val rhythms = scores.map { score -> score.notes.map { note -> NoteValue.entries.single { it.ticks == note.duration } } }.toSet()
+        assertEquals(config.rhythms.toSet(), rhythms)
+        assertEquals(30, rhythms.size)
+        scores.forEach { score ->
+            score.notes.forEach { note -> assertTrue(config.mayStartAt(note.duration, note.onset), "seed: $score") }
+            val eighths = score.notes.filter { it.duration == Ticks.EIGHTH }
+            assertTrue(eighths.size % 2 == 0, "eighths come in pairs: $score")
+            eighths.chunked(2).forEach { (first, second) ->
+                assertEquals(Ticks.ZERO, Ticks(first.onset.value % Ticks.PER_QUARTER), "a pair starts on the beat: $score")
+                assertEquals(first.end, second.onset, "a pair fills its beat: $score")
+            }
+        }
+        assertTrue(scores.any { score -> score.notes.all { it.duration == Ticks.EIGHTH } }, "eight eighths come up")
     }
 
     @Test

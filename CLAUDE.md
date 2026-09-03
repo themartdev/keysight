@@ -70,8 +70,9 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `BravuraMetrics`, `AccidentalState` (when an accidental is written), `ScoreLayoutEngine`
   producing a `SystemLayout` (a row of measures across all staves, justified to a width) and a
   `PageLayout` (systems stacked, with the system at a time, the two-system `window` that is the
-  page turn, and the `Cursor` at a time) in staff-space units, `Mask` (which score time is
-  hidden), and `noteMarks`, the one place evaluation outcomes meet notation.
+  page turn, and the `Cursor` at a time) in staff-space units, with flags on lone eighths and
+  `BeamElement`s over eighths that share a beat, `Mask` (which score time is hidden), and
+  `noteMarks`, the one place evaluation outcomes meet notation.
 - `di/` `AppContainer`. `ui/notation/` the Compose Canvas renderer (`RunPage`, the two systems
   around the beat; `RunSummaryPage`, every system in a scroll; `drawPage`, `drawSystem`) that
   draws a `PageLayout` with the bundled Bravura font. `ui/practice/` the one screen, its view
@@ -80,11 +81,13 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `app/src/main/assets/licenses/`. Glyph metrics are the table in `BravuraMetrics`, checked
   against the font file by `BravuraMetricsTest`.
 - `app/src/test/resources/exercises/` the eighteen hand-written measures of the rounds before
-  the generator, test fixtures only: `BundledMeasuresTest` holds them to the layout envelope
-  and to the generator's constraints (`violations`, the test-side statement of the contract).
+  the generator and the four eighth-note measures of round 9 (beamed pairs on both clefs in C,
+  B flat and D, and one syncopated measure of lone flagged eighths the generator never
+  writes), test fixtures only: `BundledMeasuresTest` holds them to the layout envelope and to
+  the generator's constraints (`violations`, the test-side statement of the contract).
 
-Not built yet: session summaries and the later generator dimensions; the plan's round ladder
-covers them in order.
+Not built yet: session summaries and the generator dimensions after eighths (rests,
+accidentals, chords, other meters); the plan's round ladder covers them in order.
 
 ## Build and test
 
@@ -138,10 +141,14 @@ from this environment.
   written in C and transposed, and every segment stores its generator version, seed and config
   beside its score so history stands without the generator. A run has one seed and segment k's
   seed is `segmentSeed(runSeed, k)`. Bump `GENERATOR_VERSION` whenever the same inputs would
-  produce a different score. A new generator dimension gets its constraint in `violations`, its
-  generator test and, if a judgement changes, its evaluator test before the controller may move
-  it; the layout draws no rests within a measure, no dots and no flags yet, so those dimensions
-  wait for the layout.
+  produce a different score. The rhythm vocabulary is every way to fill the measure with the
+  allowed values in which only a note shorter than the beat starts off the beat
+  (`ExerciseConfig.mayStartAt`), so eighths come in pairs that fill a beat and nothing is
+  syncopated; `ExerciseConfig.DEFAULT_NOTE_VALUES` stays wholes to quarters, so a stored
+  configuration without eighths keeps its rhythms. A new generator dimension gets its
+  constraint in `violations`, its generator test and, if a judgement changes, its evaluator
+  test before the controller may move it; the layout draws no rests within a measure, no dots
+  and one flag or beam at most, so rests, dots and sixteenths wait for the layout.
 - Difficulty is moved by the controller, never silently. It decides from the trailing window
   of `DifficultyController.WINDOW_SEGMENTS` committed segments played at exactly the current
   state (run exposure and exercise configuration), whose success is the smaller of the pooled
@@ -171,7 +178,11 @@ from this environment.
   page on screen is the two-system window around the beat; the turn is the window moving one
   system when the cursor enters the next. Glyphs are placed by their SMuFL origin (baseline,
   left edge) using the `BravuraMetrics` table, never by eyeballed offsets, and `noteMarks` is
-  the only place evaluation outcomes meet notation.
+  the only place evaluation outcomes meet notation. Eighths that share a beat are beamed and a
+  beam never crosses a beat; a lone eighth hangs a flag from its stem tip by the flag's SMuFL
+  anchor. A beamed group's stems follow the head farthest from the middle line, the beam
+  follows its first and last heads (half their distance, at most one space) and sits where
+  the stem nearest it has its own length; the beam carries no note id, the stems do.
 - Raw MIDI is never discarded or overwritten: `midi_events` rows are the three raw bytes and a
   timestamp, and runs snapshot their score and config so history is re-evaluable on its own.
   Evaluations are keyed by `(segmentId, evaluatorVersion)`, a segment id being `runId:index`;

@@ -40,6 +40,45 @@ class PitchEvaluatorTest {
 
     private fun kinds(result: PitchResult): List<String> = result.outcomes.map { it::class.simpleName!! }
 
+    /**
+     * Eighths are half a beat apart, twice the chord spread, so a pair is two notes whether
+     * played in time or rushed to just outside the spread; a dropped one is missing on its own.
+     */
+    @Test
+    fun `consecutive eighths are two notes and never one chord`() {
+        val eighths = Fixtures.oneMeasure(
+            ScoreNote("n1", Fixtures.C4, Ticks.ZERO, Ticks.EIGHTH),
+            ScoreNote("n2", Fixtures.D4, Ticks.EIGHTH, Ticks.EIGHTH),
+            ScoreNote("n3", Fixtures.E4, Ticks.QUARTER, Ticks.QUARTER),
+            ScoreNote("n4", Fixtures.F4, Ticks.HALF, Ticks.HALF),
+        )
+        val run = Fixtures.run(eighths)
+        fun played(vararg notes: Pair<Pitch, Double>): RunEvaluation = PerformanceEvaluator.evaluate(
+            run.score,
+            run.timeline,
+            startedAt,
+            notes.flatMap { (pitch, beat) ->
+                val onset = performanceStart + (beat * SECOND_NANOS).toLong()
+                listOf(MidiEvent.noteOn(onset, pitch, 90), MidiEvent.noteOff(onset + SECOND_NANOS / 4, pitch))
+            },
+        )
+
+        val inTime = played(c4 to 0.0, d4 to 0.5, e4 to 1.0, f4 to 2.0)
+        assertEquals(listOf("Correct", "Correct", "Correct", "Correct"), kinds(inTime.pitch))
+        assertEquals(List(4) { TimingJudgement.ON_TIME }, inTime.rhythm!!.timings.map { it.judgement })
+
+        val rushed = played(c4 to 0.0, d4 to 0.3, e4 to 1.0, f4 to 2.0)
+        assertEquals(listOf("Correct", "Correct", "Correct", "Correct"), kinds(rushed.pitch))
+        assertEquals(
+            listOf(TimingJudgement.ON_TIME, TimingJudgement.EARLY, TimingJudgement.ON_TIME, TimingJudgement.ON_TIME),
+            rushed.rhythm!!.timings.map { it.judgement },
+        )
+
+        val dropped = played(c4 to 0.0, e4 to 1.0, f4 to 2.0)
+        assertEquals(listOf("Correct", "Missing", "Correct", "Correct"), kinds(dropped.pitch))
+        assertEquals(5, PerformanceEvaluator.EVALUATOR_VERSION, "no judgement changed for eighths")
+    }
+
     @Test
     fun `a perfect performance is all correct`() {
         val result = evaluate(performance(listOf(c4, d4, e4, f4)))

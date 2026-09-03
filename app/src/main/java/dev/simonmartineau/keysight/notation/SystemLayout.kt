@@ -8,16 +8,17 @@ import dev.simonmartineau.keysight.score.Ticks
  * role exists so annotations can tell a notehead from a barline without guessing from
  * geometry.
  */
-enum class Role { STAFF_LINE, BARLINE, BRACE, CLEF, KEY_SIGNATURE, TIME_SIGNATURE, NOTEHEAD, STEM, LEDGER, ACCIDENTAL, FLAG, REST }
+enum class Role { STAFF_LINE, BARLINE, BRACE, CLEF, KEY_SIGNATURE, TIME_SIGNATURE, NOTEHEAD, STEM, LEDGER, ACCIDENTAL, FLAG, BEAM, REST }
 
 /**
  * One positioned thing in a [SystemLayout].
  *
  * Coordinates are staff spaces: x grows to the right from the layout's left edge, y grows
  * upwards from the bottom line of the system's top staff. [noteId] is set on everything that
- * belongs to a note (its head, stem, ledger lines and accidental) so a whole note can be
- * tinted at once. [ticks] is the onset of the note or rest the element belongs to, and null
- * for the structure around them; a [Mask] hides by it.
+ * belongs to one note (its head, stem, flag, ledger lines and accidental) so a whole note can
+ * be tinted at once; a beam belongs to several and carries none. [ticks] is the onset of the
+ * note or rest the element belongs to, a beam's first note's, and null for the structure
+ * around them; a [Mask] hides by it.
  */
 sealed interface Element {
     val role: Role
@@ -50,6 +51,23 @@ data class LineElement(
     override val noteId: String? = null,
     override val ticks: Ticks? = null,
 ) : Element
+
+/**
+ * A beam: a filled parallelogram with vertical ends, [thickness] deep, centred on the segment
+ * from (x1, y1) to (x2, y2) the way a [LineElement] is, so a horizontal beam is a rectangle
+ * and a slanted one keeps its ends square with the stems it joins.
+ */
+data class BeamElement(
+    val x1: Double,
+    val y1: Double,
+    val x2: Double,
+    val y2: Double,
+    val thickness: Double,
+    override val ticks: Ticks,
+) : Element {
+    override val role: Role get() = Role.BEAM
+    override val noteId: String? get() = null
+}
 
 /** One staff of a system: which clef it carries and where its bottom line sits. */
 data class StaffFrame(val index: Int, val clef: Clef, val baselineY: Double)

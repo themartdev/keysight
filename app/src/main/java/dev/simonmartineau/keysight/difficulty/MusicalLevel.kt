@@ -98,6 +98,7 @@ data class MusicalLevel(
             NoteValue.WHOLE -> "whole notes"
             NoteValue.HALF -> "half notes"
             NoteValue.QUARTER -> "quarter notes"
+            NoteValue.EIGHTH -> "eighth notes"
         }
     }
 }

@@ -100,14 +100,14 @@ ExerciseConfig     what the generator produces, see section 7
 - hands            right hand, left hand, or both
 - accompaniment    with both hands: the other staff rests, or holds a tone of the tonic triad
 - rightHandRange, leftHandRange    spelled in C, so a range is a hand position that moves with the key
-- noteValues       whole, half, quarter; the rhythm vocabulary is every way to fill the measure with them
+- noteValues       whole, half, quarter, eighth; the rhythm vocabulary is every way to fill the measure with them in which only a note shorter than the beat starts off the beat
 - maxInterval      the largest distance between consecutive melody notes, in letters
 - timeSignature
 ```
 
 Only the mode, the lookahead, the length, the key, the hands, the accompaniment, and the tempo are exposed in the UI.
 The rest are generator dimensions the difficulty controller moves on the player's behalf.
-Rests within a measure, dotted values and eighths, chords within a hand, and accidentals against the key are dimensions still to add, each once the layout can draw it.
+Rests within a measure, dotted values, syncopation, chords within a hand, and accidentals against the key are dimensions still to add, each once the layout can draw it.
 
 ---
 
@@ -125,9 +125,10 @@ Built and verified:
 - the continuous run's presentation: the run timeline with a silent segment 0, the visibility policy and its three presets, the mask on every frame, the cursor, the page turn, the run reducer and controller, bundled measures chained in one key;
 - the continuous run's evaluation: segments committed one beat after they end from a three-segment window, the running beat phase, marks behind the cursor, runs and segments in the database with attempts migrated, the run summary, open-ended runs;
 - the generator: every segment from an `ExerciseConfig` and a seed, in every key, on either staff or both, with the other hand resting or holding a note; both staves aligned as one stream of chords; seeds and configurations stored per segment and the run seed per run;
-- the difficulty controller: a window of recent committed bars, one dimension moved at a time, the lookahead between runs and the music within an open-ended run, its state stored, every move named on the summary.
+- the difficulty controller: a window of recent committed bars, one dimension moved at a time, the lookahead between runs and the music within an open-ended run, its state stored, every move named on the summary;
+- eighth notes: flags and beams in the layout, a rhythm vocabulary in which eighths come in pairs on a beat, the rung above quarters on the rhythm ladder, fixtures on both clefs in three keys.
 
-Next, in the order of section 13, one generator dimension at a time: eighth notes, rests, accidentals, chords, other meters, and the cadence on the last bar of a fixed-length run.
+Next, in the order of section 13, one generator dimension at a time: rests, accidentals, chords, other meters, and the cadence on the last bar of a fixed-length run.
 
 ---
 
@@ -238,13 +239,14 @@ Principles:
 
 - Generate in C and transpose diatonically into the requested key, so key coverage is free and spelling is consistent.
 - Constrained random walk with a contour (steps that carry on in the bar's direction weigh twice the others, and the direction turns at the edge of the range), and a rhythm vocabulary that is every way to fill the measure with the allowed note values, drawn uniformly.
+  The vocabulary keeps to readable rhythms: only a note shorter than the beat may start off the beat, so eighths come in pairs that fill a beat and nothing is syncopated until syncopation is a rung of its own.
   A cadence on the last segment of a fixed-length run is a per-segment configuration difference for a later round.
 - Each musical dimension is a generator parameter with fixtures and evaluator tests before the controller may move it.
 - The seed, the generator version, and the parameters are stored with every segment, and so is the resulting score, because generators change and history must re-evaluate on its own.
   A run has one seed; segment k's seed is derived from it and k, so one stored run seed reproduces the run and every segment reproduces itself.
 - The generator's chance comes from its own SplitMix64 stream, not the platform's random, so a stored seed keeps its meaning across Kotlin versions.
 
-The 18 bundled measures remain as test fixtures: the layout engine and the generator's constraints are held to real content.
+The 18 bundled measures and the four eighth-note measures remain as test fixtures: the layout engine and the generator's constraints are held to real content.
 
 ---
 
@@ -262,7 +264,7 @@ Dimensions, in the order the controller walks them, easiest to move first:
 | Key | C, then one accidental, then two, outward on the circle of fifths | the player's, for now |
 | Interval | steps, thirds, fourths, fifths, sixths, octaves | within and between runs |
 | Range | five notes, a sixth, an octave, a tenth, a twelfth, both hands together | within and between runs |
-| Rhythm | half notes, quarter notes; eighths when the layout draws flags | within and between runs |
+| Rhythm | half notes, quarter notes, eighth notes | within and between runs |
 
 An interval must fit inside the range, and a rhythm rung must fill the meter; a rung that would not is skipped.
 Key, hands and accompaniment stay the player's choices in this version: they are visible settings, and a setting the player chose must not move under them.
@@ -342,7 +344,8 @@ The layout engine never inspects evaluation, except through `noteMarks`.
 
 ### Notation
 
-The layout engine is native and pure: it lays out a system of measures in staff spaces, justified to a width, with a brace and spanning barlines for the grand staff, key signatures, and accidentals.
+The layout engine is native and pure: it lays out a system of measures in staff spaces, justified to a width, with a brace and spanning barlines for the grand staff, key signatures, accidentals, flags and beams.
+Eighths that share a beat are beamed and a beam never crosses a beat; a beamed group's stems follow the head farthest from the middle line, and the beam slants with its first and last heads, half their distance and at most one space.
 Every element carries the tick of the chord it belongs to, which is what the mask and the marks key on.
 Only the Compose renderer converts staff spaces to pixels, and glyphs are placed by their SMuFL origins from the `BravuraMetrics` table.
 
@@ -464,9 +467,19 @@ Built:
 - Schema version 5: the controller's state. The level on the Ready screen, every move named on the summary.
 - Device check: ten minutes of practice feels matched to the player without touching settings.
 
+### Round 9: eighth notes
+
+Built:
+
+- Fixtures first: four eighth-note measures beside the eighteen, beamed pairs on both clefs in C, B flat and D, and a syncopated measure of lone flagged eighths that the layout is held to and the generator never writes.
+- The layout draws flags from their SMuFL anchors and beams as filled parallelograms: eighths that share a beat are beamed, a beam never crosses a beat, the group's stems follow the farthest head, the beam slants with the outer heads.
+- `NoteValue.EIGHTH` in the vocabulary, with the readability rule that only a note shorter than the beat starts off the beat; the default vocabulary and the generator version unchanged, pinned by test.
+- The rung above quarters on the rhythm ladder; the evaluator checked on half-beat onsets, its version unchanged.
+- Device check: beamed and flagged eighths at the phone's staff size in both orientations, a run at the eighth rung with the click, marks landing on both notes of a pair.
+
 ### After
 
-- Generator dimensions one at a time: eighth notes, rests, accidentals, chords, other meters, each with fixtures first and a rung on its ladder.
+- Generator dimensions one at a time: rests, accidentals, chords, other meters, syncopation, each with fixtures first and a rung on its ladder.
 - Mode, staves and key on the controller's walk.
 - Latency calibration.
 - History and session summary screens.

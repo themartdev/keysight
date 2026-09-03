@@ -6,6 +6,7 @@ import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.SpelledPitch
 import dev.simonmartineau.keysight.score.Staff
 import dev.simonmartineau.keysight.score.Step
+import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,6 +18,7 @@ class ExerciseConfigTest {
     private val W = NoteValue.WHOLE
     private val H = NoteValue.HALF
     private val Q = NoteValue.QUARTER
+    private val E = NoteValue.EIGHTH
 
     @Test
     fun `the rhythm vocabulary is every way to fill the measure, longest value first`() {
@@ -29,6 +31,35 @@ class ExerciseConfigTest {
             listOf(listOf(H, Q), listOf(Q, H), listOf(Q, Q, Q)),
             ExerciseConfig.DEFAULT.copy(timeSignature = TimeSignature.THREE_FOUR).rhythms,
         )
+    }
+
+    @Test
+    fun `eighths come in pairs on a beat and nothing longer starts off the beat`() {
+        val config = ExerciseConfig.DEFAULT.copy(noteValues = setOf(W, H, Q, E))
+
+        assertEquals(30, config.rhythms.size, "four beats of quarter or two eighths, halves over beat pairs, the whole")
+        assertEquals(listOf(listOf(W), listOf(H, H), listOf(H, Q, Q), listOf(H, Q, E, E), listOf(H, E, E, Q), listOf(H, E, E, E, E)), config.rhythms.take(6))
+        assertEquals(ExerciseConfig.DEFAULT.rhythms, config.rhythms.filter { E !in it }, "the quarter vocabulary is unchanged, in its order")
+        config.rhythms.forEach { rhythm ->
+            var onset = Ticks.ZERO
+            rhythm.forEach { value ->
+                assertTrue(config.mayStartAt(value.ticks, onset), "$rhythm puts $value at $onset")
+                onset += value.ticks
+            }
+        }
+        assertTrue(listOf(Q, E, Q, E, Q) !in config.rhythms, "syncopation is not in the vocabulary")
+        assertTrue(listOf(E, Q, E, H) !in config.rhythms)
+        assertTrue(listOf(E, E, E, E, E, E, E, E) in config.rhythms)
+
+        assertTrue(config.mayStartAt(Ticks.EIGHTH, Ticks.EIGHTH))
+        assertTrue(config.mayStartAt(Ticks.QUARTER, Ticks.QUARTER))
+        assertTrue(config.mayStartAt(Ticks.HALF, Ticks.quarters(3)))
+        assertTrue(!config.mayStartAt(Ticks.QUARTER, Ticks.EIGHTH))
+        assertTrue(!config.mayStartAt(Ticks.HALF, Ticks.EIGHTH))
+
+        val waltz = config.copy(timeSignature = TimeSignature.THREE_FOUR)
+        assertEquals(12, waltz.rhythms.size, "three beats of quarter or two eighths, halves over the first or last two")
+        assertEquals(listOf(listOf(H, Q), listOf(H, E, E), listOf(Q, H), listOf(Q, Q, Q)), waltz.rhythms.take(4))
     }
 
     @Test
@@ -75,6 +106,7 @@ class ExerciseConfigTest {
         val json = keySightJson.encodeToString(ExerciseConfig.serializer(), config)
 
         assertTrue("\"noteValues\":[\"WHOLE\",\"HALF\",\"QUARTER\"]" in json, json)
+        assertEquals(ExerciseConfig.DEFAULT_NOTE_VALUES, ExerciseConfig.DEFAULT.noteValues, "eighths are a rung, not the default")
         assertTrue("\"timeSignature\"" in json, json)
         assertEquals(config, keySightJson.decodeFromString(ExerciseConfig.serializer(), json))
         assertEquals(ExerciseConfig.DEFAULT, keySightJson.decodeFromString(ExerciseConfig.serializer(), """{"keySignature":0,"hands":"RIGHT","later":1}"""))

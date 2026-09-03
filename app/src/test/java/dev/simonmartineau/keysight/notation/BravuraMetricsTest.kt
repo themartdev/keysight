@@ -5,6 +5,8 @@ import java.awt.font.FontRenderContext
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -37,6 +39,32 @@ class BravuraMetricsTest {
             assertEquals(expected.right, bounds.maxX / PX_PER_SPACE, TOLERANCE, "${glyph.name} right")
             assertEquals(expected.top, -bounds.minY / PX_PER_SPACE, TOLERANCE, "${glyph.name} top")
             assertEquals(expected.bottom, -bounds.maxY / PX_PER_SPACE, TOLERANCE, "${glyph.name} bottom")
+        }
+    }
+
+    /**
+     * The anchors come from the metadata too and the font cannot confirm them, but a flag's
+     * stem anchor is on the glyph's left edge at the end the stem meets, so a typo shows.
+     */
+    @Test
+    fun `the flag anchors sit on the left edge at the stem end and the beam is Bravura's`() {
+        val up = BravuraMetrics.of(Glyph.FLAG_8TH_UP)
+        val upAnchor = assertNotNull(up.stemUpNW)
+        assertEquals(up.left, upAnchor.x, TOLERANCE)
+        assertTrue(up.top - upAnchor.y in 0.0..0.25, "the flag's top is just above the stem tip")
+        assertNull(up.stemDownSW)
+
+        val down = BravuraMetrics.of(Glyph.FLAG_8TH_DOWN)
+        val downAnchor = assertNotNull(down.stemDownSW)
+        assertEquals(down.left, downAnchor.x, TOLERANCE)
+        assertTrue(downAnchor.y - down.bottom in 0.0..0.25, "the flag's bottom is just below the stem tip")
+        assertNull(down.stemUpNW)
+
+        assertEquals(0.5, BravuraMetrics.BEAM_THICKNESS)
+        assertTrue(BravuraMetrics.BEAM_THICKNESS > BravuraMetrics.STEM_THICKNESS)
+        Glyph.entries.filter { it != Glyph.FLAG_8TH_UP && it != Glyph.FLAG_8TH_DOWN }.forEach { glyph ->
+            assertNull(BravuraMetrics.of(glyph).stemUpNW, glyph.name)
+            assertNull(BravuraMetrics.of(glyph).stemDownSW, glyph.name)
         }
     }
 

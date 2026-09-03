@@ -1,0 +1,51 @@
+{
+  "id": "m22-syncopated-eighths",
+  "score": {
+    "timeSignature": {
+      "beatsPerMeasure": 4,
+      "beatUnit": 4
+    },
+    "keySignature": 0,
+    "measureCount": 1,
+    "notes": [
+      {
+        "id": "n1",
+        "spelling": {
+          "step": "C",
+          "octave": 5
+        },
+        "onset": 0,
+        "duration": 480
+      },
+      {
+        "id": "n2",
+        "spelling": {
+          "step": "B",
+          "octave": 4
+        },
+        "onset": 480,
+        "duration": 960
+      },
+      {
+        "id": "n3",
+        "spelling": {
+          "step": "A",
+          "octave": 4
+        },
+        "onset": 1440,
+        "duration": 480
+      },
+      {
+        "id": "n4",
+        "spelling": {
+          "step": "G",
+          "octave": 4
+        },
+        "onset": 1920,
+        "duration": 1920
+      }
+    ]
+  },
+  "musicalDifficulty": 4,
+  "syncopated": true
+}

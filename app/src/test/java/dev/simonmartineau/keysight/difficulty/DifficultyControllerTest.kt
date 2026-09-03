@@ -89,17 +89,24 @@ class DifficultyControllerTest {
     fun `steps up take turns round the order, skipping what cannot move`() {
         var position = start
         val moves = ArrayList<Dimension>()
-        repeat(6) {
+        repeat(8) {
             val decision = decide(bars(8, position = position), position)
             moves += decision.move!!.dimension
             position = decision.position
         }
 
-        // Rhythm is at its top, so the turn passes it by.
-        assertEquals(listOf(Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE), moves)
-        assertEquals(2.0, position.runConfig.lookaheadBeats)
+        // The fourth move takes the rhythm to eighths, its top, so the second time round the turn passes it by.
+        assertEquals(
+            listOf(
+                Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM,
+                Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.LOOKAHEAD,
+            ),
+            moves,
+        )
+        assertEquals(1.5, position.runConfig.lookaheadBeats)
         assertEquals(4, position.state.level.maxInterval)
         assertEquals(8, position.state.level.width)
+        assertEquals(Ladders.RHYTHM.hardest, position.state.level.noteValues)
     }
 
     @Test
@@ -142,7 +149,10 @@ class DifficultyControllerTest {
 
     @Test
     fun `an interval never outgrows the range, and a range never shrinks under its interval`() {
-        val fifths = Position(RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE), DifficultyState(MusicalLevel.DEFAULT.copy(maxInterval = 4), lastMoved = Dimension.RANGE))
+        val fifths = Position(
+            RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE),
+            DifficultyState(MusicalLevel.DEFAULT.copy(maxInterval = 4, noteValues = Ladders.RHYTHM.hardest), lastMoved = Dimension.RANGE),
+        )
         val up = decide(bars(8, position = fifths), fifths)
         assertEquals(Move(Dimension.RANGE, Direction.UP), up.move)
 

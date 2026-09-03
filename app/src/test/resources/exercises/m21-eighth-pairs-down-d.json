@@ -1,0 +1,60 @@
+{
+  "id": "m21-eighth-pairs-down-d",
+  "score": {
+    "timeSignature": {
+      "beatsPerMeasure": 4,
+      "beatUnit": 4
+    },
+    "keySignature": 2,
+    "measureCount": 1,
+    "notes": [
+      {
+        "id": "n1",
+        "spelling": {
+          "step": "D",
+          "octave": 5
+        },
+        "onset": 0,
+        "duration": 480
+      },
+      {
+        "id": "n2",
+        "spelling": {
+          "step": "C",
+          "alteration": 1,
+          "octave": 5
+        },
+        "onset": 480,
+        "duration": 480
+      },
+      {
+        "id": "n3",
+        "spelling": {
+          "step": "B",
+          "octave": 4
+        },
+        "onset": 960,
+        "duration": 1920
+      },
+      {
+        "id": "n4",
+        "spelling": {
+          "step": "A",
+          "octave": 4
+        },
+        "onset": 2880,
+        "duration": 480
+      },
+      {
+        "id": "n5",
+        "spelling": {
+          "step": "D",
+          "octave": 5
+        },
+        "onset": 3360,
+        "duration": 480
+      }
+    ]
+  },
+  "musicalDifficulty": 4
+}

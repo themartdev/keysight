@@ -9,6 +9,8 @@ data class Point(val x: Double, val y: Double)
  * SMuFL puts the origin on the baseline at the left of the glyph; a notehead is centred on
  * its baseline so that drawing it at a line's y puts it on that line. [stemUpSE] and
  * [stemDownNW] are where a stem meets the head, null for glyphs that take no stem.
+ * [stemUpNW] and [stemDownSW] are a flag's: where the top left corner of an up stem, or the
+ * bottom left corner of a down stem, sits on the flag.
  */
 data class GlyphMetrics(
     val left: Double,
@@ -17,6 +19,8 @@ data class GlyphMetrics(
     val top: Double,
     val stemUpSE: Point? = null,
     val stemDownNW: Point? = null,
+    val stemUpNW: Point? = null,
+    val stemDownSW: Point? = null,
 ) {
     val width: Double get() = right - left
     val height: Double get() = top - bottom
@@ -37,6 +41,7 @@ object BravuraMetrics {
     const val LEDGER_LINE_EXTENSION = 0.4
     const val THIN_BARLINE_THICKNESS = 0.16
     const val THICK_BARLINE_THICKNESS = 0.5
+    const val BEAM_THICKNESS = 0.5
 
     private val STEM_UP_SE = Point(1.18, 0.168)
     private val STEM_DOWN_NW = Point(0.0, -0.168)
@@ -68,8 +73,8 @@ object BravuraMetrics {
         Glyph.ACCIDENTAL_DOUBLE_SHARP to box(0.0, -0.5, 0.988, 0.508),
         Glyph.ACCIDENTAL_DOUBLE_FLAT to box(0.0, -0.7, 1.644, 1.748),
 
-        Glyph.FLAG_8TH_UP to box(0.0, -3.24, 1.056, 0.036),
-        Glyph.FLAG_8TH_DOWN to box(0.0, -0.056, 1.224, 3.232),
+        Glyph.FLAG_8TH_UP to box(0.0, -3.24, 1.056, 0.036, stemUpNW = Point(0.0, -0.04)),
+        Glyph.FLAG_8TH_DOWN to box(0.0, -0.056, 1.224, 3.232, stemDownSW = Point(0.0, 0.132)),
 
         Glyph.REST_WHOLE to box(0.0, -0.54, 1.128, 0.036),
         Glyph.REST_HALF to box(0.0, -0.008, 1.128, 0.568),
@@ -91,5 +96,7 @@ object BravuraMetrics {
         top: Double,
         stemUpSE: Point? = null,
         stemDownNW: Point? = null,
-    ) = GlyphMetrics(left, bottom, right, top, stemUpSE, stemDownNW)
+        stemUpNW: Point? = null,
+        stemDownSW: Point? = null,
+    ) = GlyphMetrics(left, bottom, right, top, stemUpSE, stemDownNW, stemUpNW, stemDownSW)
 }
