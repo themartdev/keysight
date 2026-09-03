@@ -8,6 +8,7 @@ import dev.simonmartineau.keysight.score.Step
 import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 
 /** A note value the generator may write. Nothing shorter than an eighth until the layout draws a second beam. */
 @Serializable
@@ -62,7 +63,9 @@ enum class Accompaniment(val label: String) {
  * position, not a register, and moves with the key. [maxInterval] is the largest distance
  * between consecutive melody notes, in letters: 1 is stepwise, 2 allows thirds, 4 fifths;
  * a repeated note is always allowed. With [rests] the rhythm may hold silence between its
- * notes, a rest of one of the note values at a time.
+ * notes, a rest of one of the note values at a time. With [accidentals] one note of the bar
+ * is a chromatic neighbour, see [chromaticNeighbour]: a note of the walk raised or lowered
+ * by a semitone so that it resolves by step to the note after it.
  *
  * Only [keySignature], [hands] and [accompaniment] are exposed in the settings; the rest are
  * the difficulty controller's, laid over them by its
@@ -77,6 +80,7 @@ data class ExerciseConfig(
     val leftHandRange: PitchRange = DEFAULT_LEFT_HAND_RANGE,
     val noteValues: Set<NoteValue> = DEFAULT_NOTE_VALUES,
     val rests: Boolean = false,
+    val accidentals: Boolean = false,
     val maxInterval: Int = 2,
     val timeSignature: TimeSignature = TimeSignature.FOUR_FOUR,
 ) {
@@ -172,6 +176,22 @@ fun rhythmsFilling(values: Set<NoteValue>, timeSignature: TimeSignature, rests: 
     }
     fill(emptyList(), Ticks.ZERO)
     return result
+}
+
+/**
+ * The altered note that may stand where [note] does when [next] follows it: [note] raised or
+ * lowered by a semitone so that it sits a semitone from [next] and resolves to it by a letter
+ * step, a raised note upward and a lowered note downward. Null when [note] is not one letter
+ * and one whole tone from [next]: E to F and B to C are semitones already, so raising the one
+ * or lowering the other would spell a white key as a black one. Stated in C major, where the
+ * generator writes and the constraints are checked; in the key the spelling follows from
+ * transposition, so a natural appears exactly where the key signature alters the letter.
+ */
+fun chromaticNeighbour(note: SpelledPitch, next: SpelledPitch): SpelledPitch? {
+    if (note.alteration != 0 || next.alteration != 0) return null
+    val letters = next.diatonicIndex - note.diatonicIndex
+    if (abs(letters) != 1 || note.pitch.semitonesTo(next.pitch) != 2 * letters) return null
+    return note.copy(alteration = letters)
 }
 
 /** The vocabulary's readability rule, [ExerciseConfig.mayStartAt]. */

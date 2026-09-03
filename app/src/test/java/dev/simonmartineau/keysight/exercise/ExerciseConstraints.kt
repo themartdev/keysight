@@ -2,6 +2,7 @@ package dev.simonmartineau.keysight.exercise
 
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Score
+import dev.simonmartineau.keysight.score.ScoreNote
 import dev.simonmartineau.keysight.score.Step
 import dev.simonmartineau.keysight.score.Ticks
 import kotlin.math.abs
@@ -44,17 +45,33 @@ fun ExerciseConfig.violations(score: Score): List<String> {
         }
     }
 
+    /**
+     * An altered note must be the [chromaticNeighbour] of the note after it, which follows
+     * without a rest: a sharp resolving up or a flat resolving down by a semitone step, so
+     * never the last note of the bar and never before a silence.
+     */
+    fun alterationProblems(note: ScoreNote, next: ScoreNote?): List<String> = when {
+        !accidentals -> listOf("${note.id} is ${note.spelling}, not natural")
+        next == null -> listOf("${note.id} is ${note.spelling}, the last note of the bar, with nothing to resolve to")
+        next.onset != note.end -> listOf("${note.id} is ${note.spelling} before a rest, with nothing to resolve to")
+        chromaticNeighbour(note.spelling.copy(alteration = 0), next.spelling) != note.spelling ->
+            listOf("${note.id} is ${note.spelling} and does not resolve by a semitone step to ${next.spelling}")
+        else -> emptyList()
+    }
+
     var expectedOnset = Ticks.ZERO
-    melody.forEach { note ->
+    melody.forEachIndexed { index, note ->
         if (note.onset < expectedOnset) problems += "${note.id} starts at ${note.onset}, before $expectedOnset"
         if (note.onset > expectedOnset) problems += restProblems(expectedOnset, note.onset)
         if (note.duration !in allowed) problems += "${note.id} lasts ${note.duration}, not one of $noteValues"
         if (!mayStartAt(note.duration, note.onset)) problems += "${note.id} lasts ${note.duration} and starts off the beat at ${note.onset}"
         if (note.spelling !in range) problems += "${note.id} is ${note.spelling}, outside $range"
-        if (note.spelling.alteration != 0) problems += "${note.id} is ${note.spelling}, not natural"
+        if (note.spelling.alteration != 0) problems += alterationProblems(note, melody.getOrNull(index + 1))
         if (note.voice != note.staff) problems += "${note.id} is in voice ${note.voice} on staff ${note.staff}"
         expectedOnset = note.end
     }
+    val altered = melody.count { it.spelling.alteration != 0 }
+    if (altered > 1) problems += "$altered altered notes, more than one"
     if (melody.isNotEmpty() && expectedOnset > timeSignature.ticksPerMeasure) problems += "the melody ends at $expectedOnset, past the barline"
     if (melody.isNotEmpty() && expectedOnset < timeSignature.ticksPerMeasure) problems += restProblems(expectedOnset, timeSignature.ticksPerMeasure)
     melody.zipWithNext().forEach { (a, b) ->

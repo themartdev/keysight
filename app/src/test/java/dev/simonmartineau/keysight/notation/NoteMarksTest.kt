@@ -12,7 +12,9 @@ import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
 import dev.simonmartineau.keysight.score.Score
 import dev.simonmartineau.keysight.score.ScoreNote
+import dev.simonmartineau.keysight.score.SpelledPitch
 import dev.simonmartineau.keysight.score.Staff
+import dev.simonmartineau.keysight.score.Step
 import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
 import kotlin.test.Test
@@ -150,6 +152,33 @@ class NoteMarksTest {
         val eNatural = assertIs<NoteMark.Extra>(noteMarks(flatLayout, flatScore, listOf(NoteOutcome.Extra(played(64, 0.5)))).single())
         assertEquals(StaffPosition(0), eNatural.position)
         assertEquals(Glyph.ACCIDENTAL_NATURAL, eNatural.accidental)
+    }
+
+    /**
+     * A cue beside an altered note shares its letter, so its accidental is always written,
+     * the key's own included; anywhere else the cue is spelled against the key alone.
+     */
+    @Test
+    fun `a cue beside an altered note always carries its accidental`() {
+        val bNatural = ScoreNote("n2", SpelledPitch(Step.B, octave = 4), Ticks.QUARTER, Ticks.QUARTER)
+        val inF = Fixtures.oneMeasure(
+            ScoreNote("n1", SpelledPitch(Step.C, octave = 5), Ticks.ZERO, Ticks.QUARTER),
+            bNatural,
+            ScoreNote("n3", SpelledPitch(Step.C, octave = 5), Ticks.HALF, Ticks.HALF),
+        ).copy(keySignature = KeySignature(-1))
+        val layoutInF = ScoreLayoutEngine.layoutSystem(inF, 0, null, showTimeSignature = true)
+        fun cue(midi: Int) = assertIs<NoteMark.WrongPitch>(noteMarks(layoutInF, inF, listOf(NoteOutcome.WrongPitch(bNatural, played(midi, 1.0)))).single())
+
+        val bFlat = cue(70)
+        assertEquals(StaffPosition.MIDDLE_LINE, bFlat.played)
+        assertEquals(Glyph.ACCIDENTAL_FLAT, bFlat.accidental, "the key's flat is written, since the bar just wrote a natural on B")
+        val a = cue(69)
+        assertEquals(StaffPosition(3), a.played)
+        assertNull(a.accidental, "another letter is spelled against the key")
+        val dFlat = cue(73)
+        assertEquals(StaffPosition(6), dFlat.played)
+        assertEquals(Glyph.ACCIDENTAL_FLAT, dFlat.accidental, "a black key leans the way of the key: D flat, not C sharp")
+        assertEquals(Glyph.ACCIDENTAL_NATURAL, assertIs<NoteMark.WrongPitch>(noteMarks(layoutInF, inF, listOf(NoteOutcome.WrongPitch(inF.notes[0], played(71, 0.0)))).single()).accidental, "a natural played for an in-key note is a natural")
     }
 
     @Test

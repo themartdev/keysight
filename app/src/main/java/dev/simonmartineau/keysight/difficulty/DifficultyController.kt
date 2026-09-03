@@ -102,6 +102,10 @@ object DifficultyController {
                 val rests = Ladders.RESTS.step(level.rests, direction) ?: return null
                 position.withLevel(level.copy(rests = rests))
             }
+            Dimension.ACCIDENTALS -> {
+                val accidentals = Ladders.ACCIDENTALS.step(level.accidentals, direction) ?: return null
+                position.withLevel(level.copy(accidentals = accidentals))
+            }
         }
     }
 

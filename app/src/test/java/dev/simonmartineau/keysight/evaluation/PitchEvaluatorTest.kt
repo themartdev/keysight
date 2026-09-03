@@ -3,8 +3,11 @@ package dev.simonmartineau.keysight.evaluation
 import dev.simonmartineau.keysight.Fixtures
 import dev.simonmartineau.keysight.SECOND_NANOS
 import dev.simonmartineau.keysight.midi.MidiEvent
+import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
 import dev.simonmartineau.keysight.score.ScoreNote
+import dev.simonmartineau.keysight.score.SpelledPitch
+import dev.simonmartineau.keysight.score.Step
 import dev.simonmartineau.keysight.score.Ticks
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -120,6 +123,38 @@ class PitchEvaluatorTest {
         assertEquals(listOf("1:n2"), hesitant.rhythm!!.pauses.map { it.beforeNoteId }, "a hesitation after the rest is still a pause")
         assertEquals(Continuity.HESITANT, hesitant.rhythm!!.continuity)
         assertEquals(5, PerformanceEvaluator.EVALUATOR_VERSION, "no judgement changed for rests")
+    }
+
+    /**
+     * The evaluator compares MIDI numbers, so an accidental is just another pitch: a written
+     * B natural in F played as B natural is correct, played as the key's B flat is a wrong
+     * pitch, and played E sharp for F is the same note.
+     */
+    @Test
+    fun `an altered note is correct at its own pitch and a wrong pitch at its diatonic neighbour`() {
+        val inF = Fixtures.oneMeasure(
+            ScoreNote("n1", SpelledPitch(Step.C, octave = 5), Ticks.ZERO, Ticks.QUARTER),
+            ScoreNote("n2", SpelledPitch(Step.B, octave = 4), Ticks.QUARTER, Ticks.QUARTER),
+            ScoreNote("n3", SpelledPitch(Step.C, octave = 5), Ticks.HALF, Ticks.QUARTER),
+            ScoreNote("n4", SpelledPitch(Step.E, alteration = 1, octave = 4), Ticks.quarters(3), Ticks.QUARTER),
+        ).copy(keySignature = KeySignature(-1))
+        val run = Fixtures.run(inF)
+        fun played(vararg midi: Int): PitchResult = PerformanceEvaluator.evaluate(
+            run.score,
+            run.timeline,
+            startedAt,
+            midi.flatMapIndexed { index, note ->
+                val onset = performanceStart + index * SECOND_NANOS
+                listOf(MidiEvent.noteOn(onset, Pitch(note), 90), MidiEvent.noteOff(onset + SECOND_NANOS / 2, Pitch(note)))
+            },
+        ).pitch
+
+        assertEquals(listOf("Correct", "Correct", "Correct", "Correct"), kinds(played(72, 71, 72, 65)), "B natural and E sharp, which is F")
+        val flat = played(72, 70, 72, 65)
+        assertEquals(listOf("Correct", "WrongPitch", "Correct", "Correct"), kinds(flat), "the key's B flat is not the written B natural")
+        assertEquals(Pitch(70), assertIs<NoteOutcome.WrongPitch>(flat.outcomes[1]).played.pitch)
+        assertEquals(listOf("Correct", "Correct", "Correct", "WrongPitch"), kinds(played(72, 71, 72, 64)), "E natural is not E sharp")
+        assertEquals(5, PerformanceEvaluator.EVALUATOR_VERSION, "no judgement changed for accidentals")
     }
 
     @Test

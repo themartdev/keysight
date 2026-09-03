@@ -27,7 +27,9 @@ class LaddersTest {
     private val levels: List<MusicalLevel> = Ladders.INTERVAL.rungs.flatMap { interval ->
         Ladders.RANGE.rungs.flatMap { ranges ->
             Ladders.RHYTHM.rungs.flatMap { values ->
-                Ladders.RESTS.rungs.map { rests -> MusicalLevel(interval, ranges.right, ranges.left, values, rests) }
+                Ladders.RESTS.rungs.flatMap { rests ->
+                    Ladders.ACCIDENTALS.rungs.map { accidentals -> MusicalLevel(interval, ranges.right, ranges.left, values, rests, accidentals) }
+                }
             }
         }
     }.filter { it.isConsistent }
@@ -60,7 +62,19 @@ class LaddersTest {
         assertTrue(!MusicalLevel.DEFAULT.rests, "the player starts without rests")
         assertEquals(true, Ladders.RESTS.step(false, Direction.UP))
         assertNull(Ladders.RESTS.step(true, Direction.UP))
-        assertEquals(listOf(Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS), MusicalLevel.MUSICAL_DIMENSIONS)
+        assertEquals(listOf(false, true), Ladders.ACCIDENTALS.rungs, "accidentals are off, then on")
+        assertTrue(!MusicalLevel.DEFAULT.accidentals, "the player starts without accidentals")
+        assertEquals(true, Ladders.ACCIDENTALS.step(false, Direction.UP))
+        assertNull(Ladders.ACCIDENTALS.step(true, Direction.UP))
+        assertEquals(listOf(Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS, Dimension.ACCIDENTALS), MusicalLevel.MUSICAL_DIMENSIONS)
+    }
+
+    @Test
+    fun `a level with accidentals needs a step for them to resolve by`() {
+        assertTrue(MusicalLevel.DEFAULT.copy(accidentals = true).isConsistent)
+        assertTrue(MusicalLevel.DEFAULT.copy(maxInterval = 1, accidentals = true).isConsistent)
+        assertTrue(!MusicalLevel.DEFAULT.copy(maxInterval = 0, accidentals = true).isConsistent)
+        assertTrue(MusicalLevel.DEFAULT.copy(maxInterval = 0).isConsistent)
     }
 
     @Test
@@ -102,7 +116,7 @@ class LaddersTest {
 
     @Test
     fun `every level on the ladders is a configuration the generator satisfies for every hands`() {
-        assertEquals((6 * 5 * 3 - 3 * 3) * 2, levels.size, "sixths and octaves need more than five notes, octaves more than six; each with and without rests")
+        assertEquals((6 * 5 * 3 - 3 * 3) * 2 * 2, levels.size, "sixths and octaves need more than five notes, octaves more than six; each with and without rests, with and without accidentals")
         levels.forEach { level ->
             bases.forEach { base ->
                 val config = level.applyTo(base)
@@ -116,14 +130,18 @@ class LaddersTest {
 
     @Test
     fun `the hardest rungs lay out inside the envelope in C and in every key on both staves`() {
-        val hardest = MusicalLevel(Ladders.INTERVAL.hardest, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest, Ladders.RESTS.hardest)
+        val hardest = MusicalLevel(Ladders.INTERVAL.hardest, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest, Ladders.RESTS.hardest, Ladders.ACCIDENTALS.hardest)
         KeySignature.ALL.forEach { key ->
             val config = hardest.applyTo(ExerciseConfig(key, Hands.BOTH, Accompaniment.HELD_NOTE))
             val run = runScore((0L until 12L).map { ExerciseGenerator.generate(config, it) })
             val page = ScoreLayoutEngine.layoutPage(run, targetWidth = 60.0)
             assertEquals(run.notes.map { it.id }.toSet(), page.systems.flatMap { it.layout.anchors.keys }.toSet(), "$key")
-            val rests = page.systems.flatMap { it.layout.elements }.filterIsInstance<GlyphElement>().filter { it.role == Role.REST }
+            val glyphs = page.systems.flatMap { it.layout.elements }.filterIsInstance<GlyphElement>()
+            val rests = glyphs.filter { it.role == Role.REST }
             assertTrue(rests.any { it.glyph != Glyph.REST_WHOLE }, "$key: twelve bars with rests on draw a rest inside a bar")
+            val accidentals = glyphs.filter { it.role == Role.ACCIDENTAL }
+            assertTrue(accidentals.isNotEmpty(), "$key: twelve bars with accidentals on draw one")
+            assertTrue(accidentals.none { it.glyph == Glyph.ACCIDENTAL_DOUBLE_SHARP || it.glyph == Glyph.ACCIDENTAL_DOUBLE_FLAT }, "$key: never a double")
             if (key == KeySignature.C_MAJOR) {
                 page.systems.forEach { placed ->
                     assertEquals(ScoreLayoutEngine.ENVELOPE_TOP, placed.layout.top)
@@ -133,14 +151,33 @@ class LaddersTest {
         }
     }
 
+    /**
+     * In every key but C some chromatic neighbour lands on a letter the key alters and is
+     * written as a natural, once the range holds every letter: G major's is F natural, the
+     * lowered seventh, which the five-finger position on C cannot reach.
+     */
+    @Test
+    fun `at the accidentals rung a natural cancelling the key comes up in every key but C`() {
+        val level = MusicalLevel.DEFAULT.copy(accidentals = true, rightHandRange = Ladders.RANGE.hardest.right, leftHandRange = Ladders.RANGE.hardest.left)
+        KeySignature.ALL.filter { it != KeySignature.C_MAJOR }.forEach { key ->
+            val config = level.applyTo(ExerciseConfig(key, Hands.RIGHT))
+            val natural = (0L until 300L).any { seed ->
+                ExerciseGenerator.generate(config, seed).notes.any { it.spelling.alteration == 0 && key.alterationOf(it.spelling.step) != 0 }
+            }
+            assertTrue(natural, "$key: no natural in three hundred bars")
+        }
+    }
+
     @Test
     fun `a level is described in words, one per dimension`() {
-        assertEquals("Up to thirds, five notes, quarter notes, no rests.", MusicalLevel.DEFAULT.description)
-        val hardest = MusicalLevel(7, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest, rests = true)
-        assertEquals("Up to octaves, a twelfth, eighth notes, with rests.", hardest.description)
+        assertEquals("Up to thirds, five notes, quarter notes, no rests, no accidentals.", MusicalLevel.DEFAULT.description)
+        val hardest = MusicalLevel(7, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest, rests = true, accidentals = true)
+        assertEquals("Up to octaves, a twelfth, eighth notes, with rests, with accidentals.", hardest.description)
         val easiest = MusicalLevel(1, Ladders.RANGE.easiest.right, Ladders.RANGE.easiest.left, Ladders.RHYTHM.easiest)
-        assertEquals("Steps only, five notes, half notes, no rests.", easiest.description)
+        assertEquals("Steps only, five notes, half notes, no rests, no accidentals.", easiest.description)
         assertEquals("with rests", MusicalLevel.restsLabel(true))
+        assertEquals("with accidentals", MusicalLevel.accidentalsLabel(true))
+        assertEquals("no accidentals", MusicalLevel.accidentalsLabel(false))
         assertEquals("an octave", MusicalLevel.rangeLabel(8))
         assertEquals("up to fifths", MusicalLevel.intervalLabel(4))
         assertEquals("whole notes", MusicalLevel.rhythmLabel(NoteValue.WHOLE))
@@ -149,7 +186,7 @@ class LaddersTest {
 
     @Test
     fun `a level applied to a base keeps the player's choices and reads back as itself`() {
-        val level = MusicalLevel(3, Ladders.RANGE.rungs[2].right, Ladders.RANGE.rungs[2].left, Ladders.RHYTHM.easiest, rests = true)
+        val level = MusicalLevel(3, Ladders.RANGE.rungs[2].right, Ladders.RANGE.rungs[2].left, Ladders.RHYTHM.easiest, rests = true, accidentals = true)
         val base = ExerciseConfig(KeySignature(-2), Hands.BOTH, Accompaniment.HELD_NOTE)
 
         val config = level.applyTo(base)
@@ -161,5 +198,6 @@ class LaddersTest {
         assertEquals(8, level.width)
         assertEquals(NoteValue.HALF, level.shortestValue)
         assertTrue(config.rests)
+        assertTrue(config.accidentals)
     }
 }

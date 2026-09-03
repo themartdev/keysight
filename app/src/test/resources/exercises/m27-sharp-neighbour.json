@@ -1,5 +1,5 @@
 {
-  "id": "m22-syncopated-eighths",
+  "id": "m27-sharp-neighbour",
   "score": {
     "timeSignature": {
       "beatsPerMeasure": 4,
@@ -11,29 +11,30 @@
       {
         "id": "n1",
         "spelling": {
-          "step": "C",
-          "octave": 5
+          "step": "D",
+          "octave": 4
         },
         "onset": 0,
-        "duration": 480
+        "duration": 960
       },
       {
         "id": "n2",
         "spelling": {
-          "step": "B",
+          "step": "C",
+          "alteration": 1,
           "octave": 4
         },
-        "onset": 480,
+        "onset": 960,
         "duration": 960
       },
       {
         "id": "n3",
         "spelling": {
-          "step": "A",
+          "step": "D",
           "octave": 4
         },
-        "onset": 1440,
-        "duration": 480
+        "onset": 1920,
+        "duration": 960
       },
       {
         "id": "n4",
@@ -41,11 +42,10 @@
           "step": "G",
           "octave": 4
         },
-        "onset": 1920,
-        "duration": 1920
+        "onset": 2880,
+        "duration": 960
       }
     ]
   },
-  "musicalDifficulty": 4,
-  "beyondVocabulary": "off the beat"
+  "musicalDifficulty": 6
 }

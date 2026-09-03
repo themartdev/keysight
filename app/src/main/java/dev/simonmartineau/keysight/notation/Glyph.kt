@@ -4,8 +4,9 @@ package dev.simonmartineau.keysight.notation
  * The SMuFL glyphs the engraving uses, by codepoint in the Private Use Area.
  *
  * SMuFL fixes the codepoints, so any compliant font renders these; Bravura is the one
- * bundled. Glyphs the content does not need yet (the double accidentals) are listed so that
- * their generator round adds layout rules, not font plumbing.
+ * bundled. The double accidentals are listed so that a hand-written score carrying one still
+ * draws; the generator never writes one, since transposition respells a double as the plain
+ * accidental of the neighbouring letter.
  */
 enum class Glyph(val codepoint: Int) {
     BRACE(0xE000),

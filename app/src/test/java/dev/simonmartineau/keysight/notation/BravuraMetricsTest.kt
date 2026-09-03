@@ -95,6 +95,34 @@ class BravuraMetricsTest {
         }
     }
 
+    /**
+     * An accidental is placed by its origin at the head's line. The sharp and the natural
+     * straddle it, the flat sits its loop on it and rises, and all three are narrower than a
+     * head, which is what the cue room in [Spacing.MIN_ADVANCE] assumes.
+     */
+    @Test
+    fun `the accidentals straddle or sit on their origin and are narrower than a head`() {
+        val sharp = BravuraMetrics.of(Glyph.ACCIDENTAL_SHARP)
+        assertTrue(sharp.top > 1.0 && sharp.bottom < -1.0, "the sharp straddles its origin: $sharp")
+        assertTrue(sharp.top + sharp.bottom in -0.1..0.1)
+
+        val natural = BravuraMetrics.of(Glyph.ACCIDENTAL_NATURAL)
+        assertTrue(natural.top > 1.0 && natural.bottom < -1.0, "the natural straddles its origin: $natural")
+        assertTrue(natural.top + natural.bottom in -0.1..0.1)
+
+        val flat = BravuraMetrics.of(Glyph.ACCIDENTAL_FLAT)
+        assertTrue(flat.bottom in -0.8..-0.6 && flat.top > 1.5, "the flat's loop hangs half a space under its origin and its stem rises: $flat")
+
+        val head = BravuraMetrics.of(Glyph.NOTEHEAD_BLACK)
+        listOf(sharp, natural, flat).forEach { accidental ->
+            assertTrue(accidental.width < head.width, "narrower than a head: $accidental")
+            assertEquals(0.0, accidental.left, TOLERANCE, "the origin is at the left edge")
+            assertNull(accidental.stemUpSE)
+            assertNull(accidental.stemDownNW)
+        }
+        assertEquals(Spacing.ACCIDENTAL_GAP + head.width + Spacing.CUE_GAP + sharp.width + Spacing.CUE_GAP + head.width * Spacing.CUE_SCALE, Spacing.MIN_ADVANCE, 1e-9)
+    }
+
     private companion object {
         const val PX_PER_SPACE = 100f
         const val TOLERANCE = 0.03

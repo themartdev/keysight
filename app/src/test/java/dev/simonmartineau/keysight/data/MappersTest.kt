@@ -214,11 +214,17 @@ class MappersTest {
         assertEquals(state, entity.toState())
         assertTrue(DifficultyState.DEFAULT.toEntity(0).stateJson.contains("\"lastMoved\":null"))
         assertTrue(DifficultyState.DEFAULT.toEntity(0).stateJson.contains("\"rests\":false"))
+        assertTrue(DifficultyState.DEFAULT.toEntity(0).stateJson.contains("\"accidentals\":false"))
         assertEquals(DifficultyState.DEFAULT, entity.copy(stateJson = "{}").toState())
         assertEquals(
             DifficultyState.DEFAULT,
             entity.copy(stateJson = """{"level":{"maxInterval":2,"rightHandRange":{"lowest":{"step":"C","octave":4},"highest":{"step":"G","octave":4}},"leftHandRange":{"lowest":{"step":"C","octave":3},"highest":{"step":"G","octave":3}},"noteValues":["WHOLE","HALF","QUARTER"]},"lastMoved":null,"later":1}""").toState(),
-            "a state stored before rests reads as it was",
+            "a state stored before rests and accidentals reads as it was",
+        )
+        assertEquals(
+            DifficultyState(MusicalLevel.DEFAULT.copy(rests = true), Dimension.RESTS),
+            entity.copy(stateJson = """{"level":{"maxInterval":2,"rightHandRange":{"lowest":{"step":"C","octave":4},"highest":{"step":"G","octave":4}},"leftHandRange":{"lowest":{"step":"C","octave":3},"highest":{"step":"G","octave":3}},"noteValues":["WHOLE","HALF","QUARTER"],"rests":true},"lastMoved":"RESTS"}""").toState(),
+            "a state stored before accidentals reads as it was",
         )
     }
 }

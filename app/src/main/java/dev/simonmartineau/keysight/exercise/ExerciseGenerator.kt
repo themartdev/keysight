@@ -22,7 +22,11 @@ import dev.simonmartineau.keysight.score.transposed
  * direction turns at the edge of the range. A rest in the rhythm is a gap the walk skips:
  * the notes stay one melody, and the score holds nothing for the silence. With both hands
  * the melody's staff is drawn per bar, the other staff resting or holding one note of the
- * tonic triad for the bar.
+ * tonic triad for the bar. With accidentals one note of the melody becomes a
+ * [chromaticNeighbour] of the note after it, drawn among the notes that have one: a note
+ * followed without a rest by a whole-tone step, so never the last note of the bar, never
+ * before a rest and never the held note; a bar with no such place has none. That draw comes
+ * after every other, so without accidentals the random stream is consumed exactly as before.
  *
  * [GENERATOR_VERSION] is stored with every segment beside its seed and configuration; it
  * changes whenever the same inputs would produce a different score.
@@ -68,6 +72,7 @@ object ExerciseGenerator {
             onset += event.ticks
         }
 
+        val melodyCount = notes.size
         if (config.accompaniment == Accompaniment.HELD_NOTE) {
             val heldStaff = 1 - melodyStaff
             val candidates = config.rangeOf(staves[heldStaff].clef).indices.map(::spellingOf).filter { it.step in TRIAD_STEPS }
@@ -81,6 +86,16 @@ object ExerciseGenerator {
                 hand = handOn(staves[heldStaff].clef),
                 staff = heldStaff,
             )
+        }
+
+        if (config.accidentals) {
+            val candidates = notes.take(melodyCount).zipWithNext().mapIndexedNotNull { index, (note, next) ->
+                if (next.onset != note.end) null else chromaticNeighbour(note.spelling, next.spelling)?.let { index to it }
+            }
+            if (candidates.isNotEmpty()) {
+                val (index, spelling) = candidates[random.nextInt(candidates.size)]
+                notes[index] = notes[index].copy(spelling = spelling)
+            }
         }
 
         return Score(

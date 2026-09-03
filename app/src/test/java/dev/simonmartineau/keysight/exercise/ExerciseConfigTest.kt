@@ -109,6 +109,33 @@ class ExerciseConfigTest {
         assertEquals(ExerciseConfig.DEFAULT.rhythms, ExerciseConfig.DEFAULT.copy(rests = false).rhythms)
     }
 
+    /** A chromatic neighbour is the note before a whole-tone step, raised or lowered towards the step's end. */
+    @Test
+    fun `a chromatic neighbour sits a semitone from the note it resolves to by step`() {
+        val c4 = SpelledPitch(Step.C, octave = 4)
+        val d4 = SpelledPitch(Step.D, octave = 4)
+        val e4 = SpelledPitch(Step.E, octave = 4)
+        val f4 = SpelledPitch(Step.F, octave = 4)
+        val b3 = SpelledPitch(Step.B, octave = 3)
+
+        assertEquals(SpelledPitch(Step.C, 1, 4), chromaticNeighbour(c4, d4), "raised, resolving up")
+        assertEquals(SpelledPitch(Step.D, -1, 4), chromaticNeighbour(d4, c4), "lowered, resolving down")
+        assertEquals(SpelledPitch(Step.E, -1, 4), chromaticNeighbour(e4, d4))
+        assertEquals(null, chromaticNeighbour(e4, f4), "E sharp would be F")
+        assertEquals(null, chromaticNeighbour(f4, e4), "F flat would be E")
+        assertEquals(null, chromaticNeighbour(b3, c4), "B sharp would be C")
+        assertEquals(null, chromaticNeighbour(SpelledPitch(Step.D, 1, 4), e4), "only diatonic notes have neighbours")
+        assertEquals(null, chromaticNeighbour(c4, c4), "a repeated note has no step")
+        assertEquals(null, chromaticNeighbour(c4, e4), "a third is not a step")
+        assertEquals(null, chromaticNeighbour(c4, SpelledPitch(Step.D, octave = 5)), "nor is a ninth")
+        Step.entries.forEach { step ->
+            val note = SpelledPitch(step, octave = 4)
+            val up = SpelledPitch(Step.entries[(step.ordinal + 1) % 7], octave = if (step == Step.B) 5 else 4)
+            val neighbour = chromaticNeighbour(note, up)
+            if (step == Step.E || step == Step.B) assertEquals(null, neighbour, "$step") else assertEquals(1, neighbour!!.pitch.semitonesTo(up.pitch), "$step")
+        }
+    }
+
     @Test
     fun `a config that cannot fill its measure is refused`() {
         assertFailsWith<IllegalArgumentException> { ExerciseConfig.DEFAULT.copy(noteValues = emptySet()) }
@@ -154,7 +181,9 @@ class ExerciseConfigTest {
 
         assertTrue("\"noteValues\":[\"WHOLE\",\"HALF\",\"QUARTER\"]" in json, json)
         assertTrue("\"rests\":false" in json, json)
+        assertTrue("\"accidentals\":false" in json, json)
         assertTrue(!ExerciseConfig.DEFAULT.rests, "rests are a rung, not the default")
+        assertTrue(!ExerciseConfig.DEFAULT.accidentals, "so are accidentals")
         assertEquals(ExerciseConfig.DEFAULT_NOTE_VALUES, ExerciseConfig.DEFAULT.noteValues, "eighths are a rung, not the default")
         assertTrue("\"timeSignature\"" in json, json)
         assertEquals(config, keySightJson.decodeFromString(ExerciseConfig.serializer(), json))

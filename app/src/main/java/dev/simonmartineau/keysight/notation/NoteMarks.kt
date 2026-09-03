@@ -53,7 +53,10 @@ sealed interface NoteMark {
  * Turns the evaluator's outcomes into marks on [page].
  *
  * This is the only place notation meets evaluation, and it goes one way: outcomes in, marks
- * out. Played pitches are spelled as the key spells them. Extras go on the system whose time
+ * out. Played pitches are spelled as the key spells them, and a cue that shares the letter of
+ * the note it sits beside but not its alteration always carries its accidental, the key's own
+ * included: a B flat played for a written B natural in F shows its flat, where a bare head
+ * would read as the natural the bar just wrote. Extras go on the system whose time
  * they fall in and the staff whose middle line is nearest, placed by their onset on that
  * system's time axis; one that lands on an expected head is moved just right of it so both
  * stay legible. Matched notes carry their timing from [rhythm] when it was early or late; on
@@ -68,10 +71,16 @@ fun noteMarks(page: PageLayout, score: Score, outcomes: List<NoteOutcome>, rhyth
             is NoteOutcome.Missing -> NoteMark.Missing(outcome.expected.id)
             is NoteOutcome.WrongPitch -> {
                 val spelling = spelledIn(outcome.played.pitch, score.keySignature)
+                val expected = outcome.expected.spelling
+                val accidental = if (spelling.step == expected.step && spelling.alteration != expected.alteration) {
+                    Glyph.accidentalGlyph(spelling.alteration)
+                } else {
+                    cueAccidental(spelling, score.keySignature)
+                }
                 NoteMark.WrongPitch(
                     outcome.expected.id,
                     StaffPosition.of(spelling, score.staffOf(outcome.expected).clef),
-                    cueAccidental(spelling, score.keySignature),
+                    accidental,
                     offBeat(rhythm, outcome.expected.id),
                 )
             }

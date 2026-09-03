@@ -1,5 +1,6 @@
 package dev.simonmartineau.keysight.exercise
 
+import dev.simonmartineau.keysight.notation.Glyph
 import dev.simonmartineau.keysight.notation.GlyphElement
 import dev.simonmartineau.keysight.notation.Role
 import dev.simonmartineau.keysight.notation.ScoreLayoutEngine
@@ -43,6 +44,13 @@ class ExerciseGeneratorTest {
         ExerciseConfig.DEFAULT.copy(rests = true, noteValues = NoteValue.entries.toSet(), hands = Hands.BOTH, accompaniment = Accompaniment.HELD_NOTE),
         ExerciseConfig.DEFAULT.copy(rests = true, timeSignature = TimeSignature.THREE_FOUR),
         ExerciseConfig.DEFAULT.copy(rests = true, noteValues = setOf(NoteValue.QUARTER)),
+        ExerciseConfig.DEFAULT.copy(accidentals = true),
+        ExerciseConfig.DEFAULT.copy(accidentals = true, maxInterval = 1),
+        ExerciseConfig.DEFAULT.copy(accidentals = true, maxInterval = 0),
+        ExerciseConfig.DEFAULT.copy(accidentals = true, hands = Hands.LEFT),
+        ExerciseConfig.DEFAULT.copy(accidentals = true, timeSignature = TimeSignature.THREE_FOUR),
+        ExerciseConfig.DEFAULT.copy(accidentals = true, rests = true, noteValues = NoteValue.entries.toSet(), hands = Hands.BOTH, accompaniment = Accompaniment.HELD_NOTE),
+        ExerciseConfig.DEFAULT.copy(accidentals = true, rests = true, noteValues = NoteValue.entries.toSet(), maxInterval = 7, rightHandRange = PitchRange(SpelledPitch(Step.A, octave = 3), SpelledPitch(Step.E, octave = 5))),
     )
 
     /** The rhythm a measure in C was written to: its notes' values, and the silences between them as rests. */
@@ -110,6 +118,30 @@ class ExerciseGeneratorTest {
         assertEquals(1, ExerciseGenerator.GENERATOR_VERSION)
     }
 
+    /** Recorded when accidentals arrived, at version 1: the draw of the altered note is the last of the bar and must stay so. */
+    @Test
+    fun `the generator's output is pinned for configurations with accidentals`() {
+        fun pinned(config: ExerciseConfig, seed: Long) =
+            ExerciseGenerator.generate(config, seed).notes.map { "${it.spelling}:${it.duration.value}:${it.staff}" }
+        val accidentals = ExerciseConfig.DEFAULT.copy(accidentals = true)
+
+        assertEquals(
+            listOf(
+                listOf("F4:1920:0", "F4:960:0", "D4:960:0"),
+                listOf("D4:960:0", "D4:960:0", "C#4:960:0", "D4:960:0"),
+                listOf("Bb3:3840:1", "Eb4:3840:0"),
+                listOf("E4:960:0", "D4:480:0", "E4:480:0", "C4:480:0", "B3:960:0"),
+            ),
+            listOf(
+                pinned(accidentals, 1L),
+                pinned(accidentals, 2L),
+                pinned(accidentals.copy(keySignature = KeySignature(-3), hands = Hands.BOTH, accompaniment = Accompaniment.HELD_NOTE, maxInterval = 4), 2L),
+                pinned(accidentals.copy(keySignature = KeySignature(3), rests = true, noteValues = NoteValue.entries.toSet(), maxInterval = 4), 5L),
+            ),
+            "a bar with no place for one is the bar the seed makes without accidentals; C sharp resolves up to D; in A the lowered third is C natural, resolving down",
+        )
+    }
+
     @Test
     fun `with eighths every rhythm of the vocabulary comes up, in pairs on the beat`() {
         val config = ExerciseConfig.DEFAULT.copy(noteValues = NoteValue.entries.toSet())
@@ -148,6 +180,70 @@ class ExerciseGeneratorTest {
             assertTrue(layout.elements.none { it.role == Role.REST && it.ticks == null }, "every rest inside the bar carries its onset")
         }
         assertTrue(scores.count { rhythmOf(it).none { event -> event.rest } } < scores.size / 4, "with rests on, most bars hold one")
+    }
+
+    /**
+     * With accidentals one note of the bar is a chromatic neighbour wherever the walk has a
+     * whole-tone step for one: raised and resolving up, or lowered and resolving down, never
+     * last, never before a rest, drawn once by the layout; a bar with no such step has none.
+     */
+    @Test
+    fun `with accidentals most bars hold one chromatic neighbour, sharps and flats both, drawn once`() {
+        val config = ExerciseConfig.DEFAULT.copy(accidentals = true, rests = true, noteValues = NoteValue.entries.toSet())
+        val scores = (0L until 1000L).map { ExerciseGenerator.generateInC(config, it) }
+
+        val altered = scores.map { score -> score.notes.filter { it.spelling.alteration != 0 } }
+        assertTrue(altered.all { it.size <= 1 }, "at most one altered note per bar")
+        assertTrue(altered.count { it.isNotEmpty() } > scores.size / 2, "most bars hold one: ${altered.count { it.isNotEmpty() }}")
+        assertEquals(setOf(-1, 1), altered.flatten().map { it.spelling.alteration }.toSet(), "sharps and flats both come up")
+        scores.zip(altered).forEach { (score, notes) ->
+            val note = notes.singleOrNull() ?: return@forEach
+            val melody = score.notes.filter { it.id != ExerciseGenerator.HELD_NOTE_ID }.sortedBy { it.onset }
+            val next = melody[melody.indexOf(note) + 1]
+            assertEquals(note.end, next.onset, "resolves into the next sound: $score")
+            assertEquals(note.spelling.alteration, next.spelling.diatonicIndex - note.spelling.diatonicIndex, "a sharp resolves up, a flat down: $score")
+            assertEquals(note.spelling.alteration, note.pitch.semitonesTo(next.pitch), "by a semitone: $score")
+            val layout = ScoreLayoutEngine.layoutSystem(score, 0, null, showTimeSignature = true)
+            val accidentals = layout.elements.filterIsInstance<GlyphElement>().filter { it.role == Role.ACCIDENTAL }
+            assertEquals(note.id, accidentals.first().noteId, "the altered note is drawn with its accidental: $score")
+            accidentals.drop(1).forEach { later ->
+                val restored = melody.single { it.id == later.noteId }
+                assertEquals(Glyph.ACCIDENTAL_NATURAL, later.glyph, "the only other accidental is the natural restoring the letter: $score")
+                assertTrue(restored.onset > note.onset && restored.spelling == note.spelling.copy(alteration = 0), "on the same letter and octave, later in the bar: $score")
+            }
+        }
+        assertTrue(altered.flatten().none { it.spelling.step == Step.E && it.spelling.alteration > 0 || it.spelling.step == Step.B && it.spelling.alteration > 0 }, "no white key spelled as a sharp")
+        assertTrue(altered.flatten().none { it.spelling.step == Step.F && it.spelling.alteration < 0 || it.spelling.step == Step.C && it.spelling.alteration < 0 }, "or as a flat")
+
+        val repeated = (0L until 100L).map { ExerciseGenerator.generateInC(config.copy(maxInterval = 0), it) }
+        assertTrue(repeated.all { score -> score.notes.all { it.spelling.alteration == 0 } }, "repeated notes have no step to resolve by")
+        assertEquals(
+            (0L until 100L).map { ExerciseGenerator.generateInC(config.copy(accidentals = false), it) },
+            scores.take(100).map { score -> score.copy(notes = score.notes.map { it.copy(spelling = it.spelling.copy(alteration = 0)) }) },
+            "an accidental alters a note of the bar the seed makes without it, nothing else",
+        )
+    }
+
+    /** In every key an altered note is a plain sharp, flat or natural, never a double, and stays a semitone from its resolution. */
+    @Test
+    fun `with accidentals every key writes plain accidentals and the pitches come back to C`() {
+        val config = ExerciseConfig.DEFAULT.copy(accidentals = true, hands = Hands.BOTH, accompaniment = Accompaniment.HELD_NOTE)
+        KeySignature.ALL.forEach { key ->
+            seeds.take(50).forEach { seed ->
+                val inC = ExerciseGenerator.generateInC(config, seed)
+                val inKey = ExerciseGenerator.generate(config.copy(keySignature = key), seed)
+                assertEquals(inC.transposed(key), inKey, "$key seed $seed")
+                val back = inKey.transposed(KeySignature.C_MAJOR)
+                assertEquals(inC.notes.map { it.pitch }, back.notes.map { it.pitch }, "$key seed $seed back to C")
+                inKey.notes.forEach { note ->
+                    assertTrue(note.spelling.alteration in -1..1, "$key seed $seed: ${note.spelling} is a double")
+                }
+                val altered = inC.notes.filter { it.spelling.alteration != 0 }.map { it.id }
+                inKey.notes.filter { it.id !in altered }.forEach { note ->
+                    assertEquals(key.alterationOf(note.spelling.step), note.spelling.alteration, "$key seed $seed: ${note.spelling} is not in the key")
+                }
+            }
+        }
     }
 
     @Test

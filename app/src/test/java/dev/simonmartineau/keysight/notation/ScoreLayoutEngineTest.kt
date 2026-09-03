@@ -226,6 +226,64 @@ class ScoreLayoutEngineTest {
         assertEquals(plain.head("n").x + metrics.width + Spacing.ACCIDENTAL_GAP, sharp.head("n").x, 1e-9)
     }
 
+    /** Every accidental sits on the head's line by its origin, its right edge a gap left of the head, and the column makes room for it. */
+    @Test
+    fun `a flat and a natural are placed like the sharp, and the column grows by their width`() {
+        val bFlat4 = SpelledPitch(Step.B, alteration = -1, octave = 4)
+        val flat = single(bFlat4)
+        val flatGlyph = flat.glyphs(Role.ACCIDENTAL).single()
+        val flatMetrics = BravuraMetrics.of(Glyph.ACCIDENTAL_FLAT)
+        assertEquals(Glyph.ACCIDENTAL_FLAT, flatGlyph.glyph)
+        assertEquals(flat.head("n").y, flatGlyph.y)
+        assertEquals(flat.head("n").x - Spacing.ACCIDENTAL_GAP, flatGlyph.x + flatMetrics.right, 1e-9)
+        assertEquals(single(b4).head("n").x + flatMetrics.width + Spacing.ACCIDENTAL_GAP, flat.head("n").x, 1e-9)
+
+        val natural = layout(inKey(KeySignature(-2), note("n", b4, Ticks.ZERO)))
+        val naturalGlyph = natural.glyphs(Role.ACCIDENTAL).single()
+        val naturalMetrics = BravuraMetrics.of(Glyph.ACCIDENTAL_NATURAL)
+        assertEquals(Glyph.ACCIDENTAL_NATURAL, naturalGlyph.glyph)
+        assertEquals(natural.head("n").y, naturalGlyph.y)
+        assertEquals(natural.head("n").x - Spacing.ACCIDENTAL_GAP, naturalGlyph.x + naturalMetrics.right, 1e-9)
+        val inKeyFlat = layout(inKey(KeySignature(-2), note("n", bFlat4, Ticks.ZERO)))
+        assertEquals(emptyList(), inKeyFlat.glyphs(Role.ACCIDENTAL), "the key's own flat is not written")
+        assertEquals(inKeyFlat.head("n").x + naturalMetrics.width + Spacing.ACCIDENTAL_GAP, natural.head("n").x, 1e-9)
+
+        // An accidental in the middle of the bar never reaches back into the column before it.
+        val stepped = layout(Fixtures.oneMeasure(note("a", Fixtures.C4, Ticks.ZERO), note("b", SpelledPitch(Step.C, 1, 4), Ticks.QUARTER)))
+        val sharp = stepped.glyphs(Role.ACCIDENTAL).single()
+        assertTrue(sharp.x + BravuraMetrics.of(Glyph.ACCIDENTAL_SHARP).left > stepped.head("a").x + blackHead.width, "the sharp clears the head before it")
+        assertEquals(Ticks.QUARTER, sharp.ticks, "the accidental carries its note's onset, so the mask hides it with the head")
+        assertEquals(
+            Spacing.advanceFor(Ticks.QUARTER, blackHead.width) + BravuraMetrics.of(Glyph.ACCIDENTAL_SHARP).width + Spacing.ACCIDENTAL_GAP,
+            stepped.head("b").x - stepped.head("a").x,
+            1e-9,
+            "the column is the quarter's room plus the sharp's, and the sharp's room never stretches",
+        )
+    }
+
+    /** The memory is per letter and octave, per staff, per measure; a natural cancels an earlier sharp as it cancels the key. */
+    @Test
+    fun `an accidental is remembered per octave and per staff and cancelled by a natural`() {
+        val fSharp5 = SpelledPitch(Step.F, alteration = 1, octave = 5)
+        val twice = layout(Fixtures.oneMeasure(note("a", fSharp4, Ticks.ZERO), note("b", fSharp4, Ticks.QUARTER), note("c", fSharp5, Ticks.HALF), note("d", Fixtures.F4, Ticks.quarters(3))))
+        assertEquals(
+            listOf("a" to Glyph.ACCIDENTAL_SHARP, "c" to Glyph.ACCIDENTAL_SHARP, "d" to Glyph.ACCIDENTAL_NATURAL),
+            twice.glyphs(Role.ACCIDENTAL).map { it.noteId to it.glyph },
+            "the second F sharp is remembered, the octave above is not, and the natural restores the letter",
+        )
+
+        val fSharp3 = SpelledPitch(Step.F, alteration = 1, octave = 3)
+        val grand = layout(grandStaff(note("t", fSharp3, Ticks.ZERO), note("b", fSharp3, Ticks.QUARTER, staff = 1)))
+        assertEquals(listOf("t", "b"), grand.glyphs(Role.ACCIDENTAL).map { it.noteId }, "each staff remembers its own")
+
+        val restored = layout(inKey(KeySignature(2), note("a", fSharp4, Ticks.ZERO), note("b", Fixtures.F4, Ticks.QUARTER), note("c", fSharp4, Ticks.HALF), note("d", fSharp4, Ticks.quarters(3))))
+        assertEquals(
+            listOf("b" to Glyph.ACCIDENTAL_NATURAL, "c" to Glyph.ACCIDENTAL_SHARP),
+            restored.glyphs(Role.ACCIDENTAL).map { it.noteId to it.glyph },
+            "in D the key's F sharp is unwritten, the natural cancels it, and the sharp after the natural is written again, once",
+        )
+    }
+
     @Test
     fun `every note element belongs to a note and every note has an anchor`() {
         val score = Fixtures.oneMeasure(

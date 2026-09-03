@@ -25,7 +25,8 @@ data class HandRanges(val right: PitchRange, val left: PitchRange) {
  * downward first for the left, every rung holding a tone of the tonic triad so the held
  * note of a hands-together bar always has one. The rhythm ladder adds one shorter value per
  * rung, eighths last; sixteenths and dots are rungs for when the layout draws them. The rests
- * ladder is off then on: a rest is a silence of one of the note values in play.
+ * ladder is off then on: a rest is a silence of one of the note values in play. So is the
+ * accidentals ladder: one chromatic neighbour per bar, or none.
  */
 object Ladders {
 
@@ -53,6 +54,8 @@ object Ladders {
     ) { -it.minOf { value -> value.ticks.value }.toDouble() }
 
     val RESTS: Ladder<Boolean> = Ladder(listOf(false, true)) { if (it) 1.0 else 0.0 }
+
+    val ACCIDENTALS: Ladder<Boolean> = Ladder(listOf(false, true)) { if (it) 1.0 else 0.0 }
 
     private fun range(lowStep: Step, lowOctave: Int, highStep: Step, highOctave: Int) =
         PitchRange(SpelledPitch(lowStep, octave = lowOctave), SpelledPitch(highStep, octave = highOctave))

@@ -82,7 +82,7 @@ class DifficultyControllerTest {
     fun `with nothing moved yet a step down starts from the end of the order`() {
         val decision = decide(bars(8, correct = 1))
 
-        assertEquals(Move(Dimension.RHYTHM, Direction.DOWN), decision.move, "rests are already off, so the rhythm eases")
+        assertEquals(Move(Dimension.RHYTHM, Direction.DOWN), decision.move, "accidentals and rests are already off, so the rhythm eases")
         assertEquals(setOf(NoteValue.WHOLE, NoteValue.HALF), decision.position.state.level.noteValues)
     }
 
@@ -90,16 +90,16 @@ class DifficultyControllerTest {
     fun `steps up take turns round the order, skipping what cannot move`() {
         var position = start
         val moves = ArrayList<Dimension>()
-        repeat(8) {
+        repeat(9) {
             val decision = decide(bars(8, position = position), position)
             moves += decision.move!!.dimension
             position = decision.position
         }
 
-        // The fourth move takes the rhythm to eighths and the fifth turns rests on, both their tops, so the second time round the turn passes them by.
+        // The fourth move takes the rhythm to eighths, the fifth turns rests on and the sixth accidentals, all their tops, so the second time round the turn passes them by.
         assertEquals(
             listOf(
-                Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS,
+                Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS, Dimension.ACCIDENTALS,
                 Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE,
             ),
             moves,
@@ -109,6 +109,7 @@ class DifficultyControllerTest {
         assertEquals(8, position.state.level.width)
         assertEquals(Ladders.RHYTHM.hardest, position.state.level.noteValues)
         assertTrue(position.state.level.rests)
+        assertTrue(position.state.level.accidentals)
     }
 
     @Test
@@ -130,12 +131,12 @@ class DifficultyControllerTest {
 
     @Test
     fun `the walk order is the section 8 order, cyclic from the last move`() {
-        assertEquals(listOf(Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS), Dimension.entries)
+        assertEquals(listOf(Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS, Dimension.ACCIDENTALS), Dimension.entries)
         assertEquals(Dimension.entries, DifficultyController.walk(null, Direction.UP))
         assertEquals(Dimension.entries.reversed(), DifficultyController.walk(null, Direction.DOWN))
-        assertEquals(listOf(Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS, Dimension.LOOKAHEAD, Dimension.INTERVAL), DifficultyController.walk(Dimension.INTERVAL, Direction.UP))
-        assertEquals(listOf(Dimension.INTERVAL, Dimension.LOOKAHEAD, Dimension.RESTS, Dimension.RHYTHM, Dimension.RANGE), DifficultyController.walk(Dimension.INTERVAL, Direction.DOWN))
-        assertEquals(listOf(Dimension.RESTS, Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM), DifficultyController.walk(Dimension.RHYTHM, Direction.UP))
+        assertEquals(listOf(Dimension.RANGE, Dimension.RHYTHM, Dimension.RESTS, Dimension.ACCIDENTALS, Dimension.LOOKAHEAD, Dimension.INTERVAL), DifficultyController.walk(Dimension.INTERVAL, Direction.UP))
+        assertEquals(listOf(Dimension.INTERVAL, Dimension.LOOKAHEAD, Dimension.ACCIDENTALS, Dimension.RESTS, Dimension.RHYTHM, Dimension.RANGE), DifficultyController.walk(Dimension.INTERVAL, Direction.DOWN))
+        assertEquals(listOf(Dimension.RESTS, Dimension.ACCIDENTALS, Dimension.LOOKAHEAD, Dimension.INTERVAL, Dimension.RANGE, Dimension.RHYTHM), DifficultyController.walk(Dimension.RHYTHM, Direction.UP))
     }
 
     @Test
@@ -154,7 +155,7 @@ class DifficultyControllerTest {
     fun `an interval never outgrows the range, and a range never shrinks under its interval`() {
         val fifths = Position(
             RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE),
-            DifficultyState(MusicalLevel.DEFAULT.copy(maxInterval = 4, noteValues = Ladders.RHYTHM.hardest, rests = true), lastMoved = Dimension.RANGE),
+            DifficultyState(MusicalLevel.DEFAULT.copy(maxInterval = 4, noteValues = Ladders.RHYTHM.hardest, rests = true, accidentals = true), lastMoved = Dimension.RANGE),
         )
         val up = decide(bars(8, position = fifths), fifths)
         assertEquals(Move(Dimension.RANGE, Direction.UP), up.move)
@@ -178,7 +179,7 @@ class DifficultyControllerTest {
     fun `nothing eligible holds without touching the state`() {
         val top = Position(
             RunConfig.DEFAULT.copy(lookaheadBeats = 0.25),
-            DifficultyState(MusicalLevel(7, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest, rests = true), lastMoved = Dimension.RANGE),
+            DifficultyState(MusicalLevel(7, Ladders.RANGE.hardest.right, Ladders.RANGE.hardest.left, Ladders.RHYTHM.hardest, rests = true, accidentals = true), lastMoved = Dimension.RANGE),
         )
 
         val decision = decide(bars(8, position = top), top)
@@ -202,6 +203,26 @@ class DifficultyControllerTest {
 
         val quarters = Position(RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE), DifficultyState(MusicalLevel.DEFAULT, lastMoved = Dimension.RHYTHM))
         assertEquals(Move(Dimension.RESTS, Direction.UP), decide(bars(8, position = quarters), quarters).move, "rests may come on before eighths when it is their turn")
+    }
+
+    @Test
+    fun `accidentals come on after rests and go off before them`() {
+        val rests = Position(RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE), DifficultyState(MusicalLevel.DEFAULT.copy(rests = true), lastMoved = Dimension.RESTS))
+        val up = decide(bars(8, position = rests), rests)
+        assertEquals(Move(Dimension.ACCIDENTALS, Direction.UP), up.move)
+        assertTrue(up.position.state.level.accidentals)
+        assertTrue(up.position.state.level.rests)
+        assertTrue(up.position.state.level.applyTo(base).accidentals)
+
+        val struggling = decide(bars(8, correct = 1, position = up.position), up.position)
+        assertEquals(Move(Dimension.ACCIDENTALS, Direction.DOWN), struggling.move)
+        assertEquals(rests.state.level, struggling.position.state.level)
+
+        val quarters = Position(RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE), DifficultyState(MusicalLevel.DEFAULT, lastMoved = Dimension.RESTS))
+        assertEquals(Move(Dimension.ACCIDENTALS, Direction.UP), decide(bars(8, position = quarters), quarters).move, "accidentals may come on before rests when it is their turn")
+
+        val repeated = Position(RunConfig.DEFAULT.copy(mode = VisibilityMode.OPEN_SCORE), DifficultyState(MusicalLevel.DEFAULT.copy(maxInterval = 0), lastMoved = Dimension.RESTS))
+        assertEquals(Move(Dimension.INTERVAL, Direction.UP), decide(bars(8, position = repeated), repeated).move, "with no step to resolve by, accidentals are skipped")
     }
 
     @Test

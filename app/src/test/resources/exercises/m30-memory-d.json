@@ -1,0 +1,73 @@
+{
+  "id": "m30-memory-d",
+  "score": {
+    "timeSignature": {
+      "beatsPerMeasure": 4,
+      "beatUnit": 4
+    },
+    "keySignature": 2,
+    "measureCount": 1,
+    "notes": [
+      {
+        "id": "n1",
+        "spelling": {
+          "step": "G",
+          "alteration": 1,
+          "octave": 4
+        },
+        "onset": 0,
+        "duration": 480
+      },
+      {
+        "id": "n2",
+        "spelling": {
+          "step": "A",
+          "octave": 4
+        },
+        "onset": 480,
+        "duration": 480
+      },
+      {
+        "id": "n3",
+        "spelling": {
+          "step": "G",
+          "alteration": 1,
+          "octave": 4
+        },
+        "onset": 960,
+        "duration": 480
+      },
+      {
+        "id": "n4",
+        "spelling": {
+          "step": "A",
+          "octave": 4
+        },
+        "onset": 1440,
+        "duration": 480
+      },
+      {
+        "id": "n5",
+        "spelling": {
+          "step": "G",
+          "alteration": 0,
+          "octave": 4
+        },
+        "onset": 1920,
+        "duration": 960
+      },
+      {
+        "id": "n6",
+        "spelling": {
+          "step": "F",
+          "alteration": 1,
+          "octave": 4
+        },
+        "onset": 2880,
+        "duration": 960
+      }
+    ]
+  },
+  "musicalDifficulty": 6,
+  "beyondVocabulary": "altered notes"
+}

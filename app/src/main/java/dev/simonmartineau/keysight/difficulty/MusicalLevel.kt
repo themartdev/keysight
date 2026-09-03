@@ -11,8 +11,8 @@ import kotlin.math.min
  * values rather than rung indices, so a stored level keeps its meaning when a ladder is
  * reshaped. [applyTo] lays them over the player's own choices (key, hands, accompaniment,
  * meter), and [of] reads them back from any configuration, which is how a segment's stored
- * configuration says what level it was read at. [rests] defaults so a level stored before
- * the rests dimension reads as it was.
+ * configuration says what level it was read at. [rests] and [accidentals] default so a level
+ * stored before their dimensions reads as it was.
  */
 @Serializable
 data class MusicalLevel(
@@ -21,6 +21,7 @@ data class MusicalLevel(
     val leftHandRange: PitchRange,
     val noteValues: Set<NoteValue>,
     val rests: Boolean = false,
+    val accidentals: Boolean = false,
 ) {
     /** Notes per hand, the narrower hand counting: an interval must fit inside it. */
     val width: Int get() = min(rightHandRange.indices.count(), leftHandRange.indices.count())
@@ -29,8 +30,11 @@ data class MusicalLevel(
 
     val ranges: HandRanges get() = HandRanges(rightHandRange, leftHandRange)
 
-    /** Whether the level makes sense on its own: the largest interval fits inside the range. */
-    val isConsistent: Boolean get() = maxInterval < width
+    /**
+     * Whether the level makes sense on its own: the largest interval fits inside the range,
+     * and with accidentals there is a step for a chromatic neighbour to resolve by.
+     */
+    val isConsistent: Boolean get() = maxInterval < width && (!accidentals || maxInterval >= 1)
 
     fun applyTo(base: ExerciseConfig): ExerciseConfig = base.copy(
         maxInterval = maxInterval,
@@ -38,6 +42,7 @@ data class MusicalLevel(
         leftHandRange = leftHandRange,
         noteValues = noteValues,
         rests = rests,
+        accidentals = accidentals,
     )
 
     /** Where the level stands on [dimension], increasing with difficulty. */
@@ -46,19 +51,21 @@ data class MusicalLevel(
         Dimension.RANGE -> width.toDouble()
         Dimension.RHYTHM -> -shortestValue.ticks.value.toDouble()
         Dimension.RESTS -> if (rests) 1.0 else 0.0
+        Dimension.ACCIDENTALS -> if (accidentals) 1.0 else 0.0
         Dimension.LOOKAHEAD -> error("the lookahead is not a musical dimension")
     }
 
-    /** The rung of [dimension] in words: "up to thirds", "five notes", "quarter notes", "no rests". */
+    /** The rung of [dimension] in words: "up to thirds", "five notes", "quarter notes", "no rests", "no accidentals". */
     fun label(dimension: Dimension): String = when (dimension) {
         Dimension.INTERVAL -> intervalLabel(maxInterval)
         Dimension.RANGE -> rangeLabel(width)
         Dimension.RHYTHM -> rhythmLabel(shortestValue)
         Dimension.RESTS -> restsLabel(rests)
+        Dimension.ACCIDENTALS -> accidentalsLabel(accidentals)
         Dimension.LOOKAHEAD -> error("the lookahead is not a musical dimension")
     }
 
-    /** "Up to thirds, five notes, quarter notes, no rests." */
+    /** "Up to thirds, five notes, quarter notes, no rests, no accidentals." */
     val description: String
         get() = MUSICAL_DIMENSIONS.joinToString(", ", postfix = ".") { label(it) }.replaceFirstChar { it.uppercase() }
 
@@ -67,7 +74,7 @@ data class MusicalLevel(
         val MUSICAL_DIMENSIONS: List<Dimension> = Dimension.entries.filter { it.movesWithinRun }
 
         fun of(config: ExerciseConfig): MusicalLevel =
-            MusicalLevel(config.maxInterval, config.rightHandRange, config.leftHandRange, config.noteValues, config.rests)
+            MusicalLevel(config.maxInterval, config.rightHandRange, config.leftHandRange, config.noteValues, config.rests, config.accidentals)
 
         /** The generator's defaults: where every player starts. */
         val DEFAULT: MusicalLevel = of(ExerciseConfig.DEFAULT)
@@ -109,5 +116,7 @@ data class MusicalLevel(
         }
 
         fun restsLabel(rests: Boolean): String = if (rests) "with rests" else "no rests"
+
+        fun accidentalsLabel(accidentals: Boolean): String = if (accidentals) "with accidentals" else "no accidentals"
     }
 }

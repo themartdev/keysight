@@ -12,14 +12,17 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
 
 - `score/` the canonical music model: `Ticks`, `Pitch`, `SpelledPitch`, `KeySignature`, `Staff`,
   `ScoreNote` (with its staff index), `Score` (a list of staves), and `transposed`, diatonic
-  transposition between major keys.
+  transposition between major keys that carries an accidental's meaning relative to the key and
+  respells a double as the plain accidental of the neighbouring letter.
 - `exercise/` the generator: `Hands`, `ExerciseConfig` (key, hands, accompaniment, a range per
-  hand, note values, rests, the largest interval, meter; the musical side of difficulty, one
-  field per dimension the controller may move), `RhythmEvent` (a note or a rest of a value),
-  `SeededRandom` (SplitMix64, so a seed means the same thing in every Kotlin version) with
-  `segmentSeed`, and `ExerciseGenerator` with `GENERATOR_VERSION`: one measure in C from a
-  config and a seed, a constrained random walk with a contour over a rhythm from the config's
-  vocabulary, then `transposed` into the key.
+  hand, note values, rests, accidentals, the largest interval, meter; the musical side of
+  difficulty, one field per dimension the controller may move), `RhythmEvent` (a note or a
+  rest of a value), `chromaticNeighbour` (the altered note that may stand before a whole-tone
+  step), `SeededRandom` (SplitMix64, so a seed means the same thing in every Kotlin version)
+  with `segmentSeed`, and `ExerciseGenerator` with `GENERATOR_VERSION`: one measure in C from
+  a config and a seed, a constrained random walk with a contour over a rhythm from the
+  config's vocabulary, one note of it altered when accidentals are on, then `transposed` into
+  the key.
 - `midi/` `MidiEvent` (raw bytes plus timestamp), `MidiMessage` (decoded), `MidiParser`.
 - `timing/` `MonotonicClock` and `RunTimeline`, every scheduled instant of one run: segment k
   starts at beat `k * beatsPerMeasure`, segment 0 is the count-in, capture ends a tail after the
@@ -46,8 +49,8 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   segment from a window of three (the previous segment's missing notes, the segment, the next
   one) once its capture tail has passed, and `evaluate` replays every commit from stored MIDI.
 - `difficulty/` the controller of the plan's section 8, pure: `Dimension` (the fixed walk
-  order, lookahead then interval, range, rhythm, rests, each saying whether it moves within a
-  run),
+  order, lookahead then interval, range, rhythm, rests, accidentals, each saying whether it
+  moves within a run),
   `Ladders` (every dimension's rungs, easiest first, in one place, over the generic `Ladder`),
   `MusicalLevel` (the generator fields the controller owns, as values), `DifficultyState`
   (the level and the dimension moved last), `Evidence` (`SegmentEvidence` from one committed
@@ -86,13 +89,17 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
 - `app/src/test/resources/exercises/` the eighteen hand-written measures of the rounds before
   the generator, the four eighth-note measures of round 9 (beamed pairs on both clefs in C,
   B flat and D, and one syncopated measure of lone flagged eighths the generator never
-  writes) and the four rest measures of round 10 (quarter, half and eighth rests on both
-  clefs in C, G and F), test fixtures only: `BundledMeasuresTest` holds them to the layout
-  envelope and to the generator's constraints (`violations`, the test-side statement of the
-  contract).
+  writes), the four rest measures of round 10 (quarter, half and eighth rests on both clefs
+  in C, G and F) and the four accidental measures of round 11 (a sharp on a ledger line in C,
+  a flat on the bass staff in G, a natural cancelling the key in F, and in D the same sharp
+  twice drawn once with a natural restoring the letter, which two altered notes put beyond
+  the generator's vocabulary), test fixtures only: `BundledMeasuresTest` holds them to the
+  layout envelope and to the generator's constraints (`violations`, the test-side statement
+  of the contract); a measure `beyondVocabulary` names the one rule it breaks and is held to
+  every other.
 
-Not built yet: session summaries and the generator dimensions after rests (accidentals,
-chords, other meters, syncopation); the plan's round ladder covers them in order.
+Not built yet: session summaries and the generator dimensions after accidentals (chords,
+other meters, syncopation); the plan's round ladder covers them in order.
 
 ## Build and test
 
@@ -155,18 +162,32 @@ from this environment.
   note value where `mayRestAt` allows (never first in the measure, never after another rest,
   and at a multiple of its own length, so a half rest starts on beat 1 or 3 of 4/4), and
   without rests the vocabulary is the old list in the old order, so `GENERATOR_VERSION` and
-  every stored seed keep their meaning. A new generator dimension gets its constraint in
-  `violations`, its generator test and, if a judgement changes, its evaluator test before the
-  controller may move it; the layout draws no dots and one flag or beam at most, so dots and
-  sixteenths wait for the layout.
+  every stored seed keep their meaning. With `ExerciseConfig.accidentals` one note of the bar
+  is a `chromaticNeighbour`: a note of the walk followed, without a rest, by a whole-tone
+  step, raised or lowered by a semitone so that it resolves to the next note by that step, a
+  sharp resolving up or a flat resolving down; never the last note of the bar, never before a
+  rest, never the held note, one per bar, and none in a bar with no such step. The altered
+  note keeps its letter, so the range and interval rules, measured in letters, are untouched.
+  It is drawn after every other draw of the bar, so without accidentals the random stream is
+  consumed as before and `GENERATOR_VERSION` stays 1. The spelling in the key follows from
+  `transposed`: the letter moves with the tonic and the alteration keeps its meaning relative
+  to the key, so a natural appears exactly where the key signature alters the letter (F sharp
+  in C is B natural in F), E sharp and C flat are kept as the plain accidentals they are, and
+  a double is respelled as the natural of the neighbouring letter (A sharp in C is G natural
+  in A, not F double sharp). A respelled note comes back to C as its enharmonic, so
+  transposition is invertible on pitch always and on spelling wherever no double was avoided.
+  A new generator dimension gets its constraint in `violations`, its generator test and, if a
+  judgement changes, its evaluator test before the controller may move it; the layout draws
+  no dots and one flag or beam at most, so dots and sixteenths wait for the layout.
 - Difficulty is moved by the controller, never silently. It decides from the trailing window
   of `DifficultyController.WINDOW_SEGMENTS` committed segments played at exactly the current
   state (run exposure and exercise configuration), whose success is the smaller of the pooled
   pitch and rhythm accuracies the score line shows: above 90% one dimension steps up, below
   65% one steps down, else it holds, and a short window holds. One dimension per decision,
   and a move empties the window, so no two moves share evidence. The walk takes turns in
-  `Dimension` order, lookahead, interval, range, rhythm, rests: up goes to the next dimension
-  after the last moved that can move, down starts at the last moved and walks back. The lookahead moves only between runs and only in
+  `Dimension` order, lookahead, interval, range, rhythm, rests, accidentals: up goes to the
+  next dimension after the last moved that can move, down starts at the last moved and walks
+  back. The lookahead moves only between runs and only in
   Flash, and is written into the run settings; the musical dimensions move within an
   open-ended run for the segments still to be generated (`SegmentSource.SEGMENTS_AHEAD` bars
   ahead of the cursor, never a segment already shown) and between runs otherwise. Key, hands,
@@ -188,7 +209,15 @@ from this environment.
   page on screen is the two-system window around the beat; the turn is the window moving one
   system when the cursor enters the next. Glyphs are placed by their SMuFL origin (baseline,
   left edge) using the `BravuraMetrics` table, never by eyeballed offsets, and `noteMarks` is
-  the only place evaluation outcomes meet notation. Eighths that share a beat are beamed and a
+  the only place evaluation outcomes meet notation. An accidental is written only when the
+  note differs from what the reader assumes (`AccidentalState`: the key signature at the
+  barline, then every accidental written in the bar, per staff, letter and octave), so the
+  same altered note twice in a bar is written once and a natural cancels the key or an
+  earlier accidental; it sits `Spacing.ACCIDENTAL_GAP` left of the head on the head's line,
+  takes fixed room in its column that never stretches, and carries the note's id and onset,
+  so it is tinted and masked with the head. A cue beside a wrong pitch is spelled per the key
+  and always carries its accidental when it shares the written note's letter but not its
+  alteration. Eighths that share a beat are beamed and a
   beam never crosses a beat; a lone eighth hangs a flag from its stem tip by the flag's SMuFL
   anchor. A beamed group's stems follow the head farthest from the middle line, the beam
   follows its first and last heads (half their distance, at most one space) and sits where

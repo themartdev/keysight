@@ -1,11 +1,11 @@
 {
-  "id": "m22-syncopated-eighths",
+  "id": "m29-natural-in-f",
   "score": {
     "timeSignature": {
       "beatsPerMeasure": 4,
       "beatUnit": 4
     },
-    "keySignature": 0,
+    "keySignature": -1,
     "measureCount": 1,
     "notes": [
       {
@@ -15,37 +15,28 @@
           "octave": 5
         },
         "onset": 0,
-        "duration": 480
+        "duration": 960
       },
       {
         "id": "n2",
         "spelling": {
           "step": "B",
+          "alteration": 0,
           "octave": 4
         },
-        "onset": 480,
+        "onset": 960,
         "duration": 960
       },
       {
         "id": "n3",
         "spelling": {
-          "step": "A",
-          "octave": 4
-        },
-        "onset": 1440,
-        "duration": 480
-      },
-      {
-        "id": "n4",
-        "spelling": {
-          "step": "G",
-          "octave": 4
+          "step": "C",
+          "octave": 5
         },
         "onset": 1920,
-        "duration": 1920
+        "duration": 960
       }
     ]
   },
-  "musicalDifficulty": 4,
-  "beyondVocabulary": "off the beat"
+  "musicalDifficulty": 6
 }

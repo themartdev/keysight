@@ -8,7 +8,12 @@ package dev.simonmartineau.keysight.score
  * sharp. The passage moves by the smaller of the two possible intervals, at most a tritone
  * either way, so it stays in the register it was written in; a tritone goes up towards the
  * sharper key and down towards the flatter one. Going from any key back to the first therefore
- * lands where it started.
+ * lands where it started, with one exception: an accidental is never written double. Where
+ * the key already sharpens or flattens the letter an altered note lands on, the note is
+ * respelled on the neighbouring letter, up from a double sharp and down from a double flat,
+ * with the plain accidental that sounds the same. A raised sixth in C, A sharp, is not F
+ * double sharp in A but G natural, which comes back to C as B flat; the pitch always comes
+ * back, the spelling only when no double was avoided.
  */
 fun Score.transposed(to: KeySignature): Score {
     if (to == keySignature) return this
@@ -23,10 +28,17 @@ fun Score.transposed(to: KeySignature): Score {
             val old = note.spelling
             val step = Step.entries[(old.step.ordinal + stepShift) % Step.entries.size]
             val alteration = to.alterationOf(step) + (old.alteration - from.alterationOf(old.step))
-            val spelling = checkNotNull(SpelledPitch.of(old.pitch.transposedBy(semitoneShift), step, alteration)) {
-                "${note.id}: $old has no spelling on $step in $to"
+            val pitch = old.pitch.transposedBy(semitoneShift)
+            val spelling = if (alteration in PLAIN_ALTERATIONS) {
+                SpelledPitch.of(pitch, step, alteration)
+            } else {
+                val neighbour = Step.entries[Math.floorMod(step.ordinal + Integer.signum(alteration), Step.entries.size)]
+                PLAIN_ALTERATIONS.firstNotNullOfOrNull { SpelledPitch.of(pitch, neighbour, it) }
             }
-            note.copy(spelling = spelling)
+            note.copy(spelling = checkNotNull(spelling) { "${note.id}: $old has no plain spelling on $step in $to" })
         },
     )
 }
+
+/** A sharp, a natural or a flat: what an accidental on the page may be. */
+private val PLAIN_ALTERATIONS = -1..1

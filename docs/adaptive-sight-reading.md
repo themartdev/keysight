@@ -102,13 +102,14 @@ ExerciseConfig     what the generator produces, see section 7
 - rightHandRange, leftHandRange    spelled in C, so a range is a hand position that moves with the key
 - noteValues       whole, half, quarter, eighth; the rhythm vocabulary is every way to fill the measure with them in which only a note shorter than the beat starts off the beat
 - rests            whether the vocabulary also holds a rest of one of those values between notes
+- accidentals      whether one note of the bar may be a chromatic neighbour, written with an accidental
 - maxInterval      the largest distance between consecutive melody notes, in letters
 - timeSignature
 ```
 
 Only the mode, the lookahead, the length, the key, the hands, the accompaniment, and the tempo are exposed in the UI.
 The rest are generator dimensions the difficulty controller moves on the player's behalf.
-Dotted values, syncopation, chords within a hand, and accidentals against the key are dimensions still to add, each once the layout can draw it.
+Dotted values, syncopation and chords within a hand are dimensions still to add, each once the layout can draw it.
 
 ---
 
@@ -128,9 +129,10 @@ Built and verified:
 - the generator: every segment from an `ExerciseConfig` and a seed, in every key, on either staff or both, with the other hand resting or holding a note; both staves aligned as one stream of chords; seeds and configurations stored per segment and the run seed per run;
 - the difficulty controller: a window of recent committed bars, one dimension moved at a time, the lookahead between runs and the music within an open-ended run, its state stored, every move named on the summary;
 - eighth notes: flags and beams in the layout, a rhythm vocabulary in which eighths come in pairs on a beat, the rung above quarters on the rhythm ladder, fixtures on both clefs in three keys;
-- rests: silences derived from the score and split into rests by the layout, a rest of any note value in the vocabulary where one may go, the rests rung after rhythm on the controller's walk, fixtures on both clefs in three keys.
+- rests: silences derived from the score and split into rests by the layout, a rest of any note value in the vocabulary where one may go, the rests rung after rhythm on the controller's walk, fixtures on both clefs in three keys;
+- accidentals: one chromatic neighbour per bar resolving by step, spelled by transposition so a natural appears where the key alters the letter and never a double, the accidentals rung after rests on the controller's walk, fixtures on both clefs in four keys.
 
-Next, in the order of section 13, one generator dimension at a time: accidentals, chords, other meters, syncopation, and the cadence on the last bar of a fixed-length run.
+Next, in the order of section 13, one generator dimension at a time: chords, other meters, syncopation, and the cadence on the last bar of a fixed-length run.
 
 ---
 
@@ -244,13 +246,15 @@ Principles:
   The vocabulary keeps to readable rhythms: only a note shorter than the beat may start off the beat, so eighths come in pairs that fill a beat and nothing is syncopated until syncopation is a rung of its own.
   With rests on, a silence of one of the note values may follow a note: never first in the measure, never after another rest, and only at a multiple of its own length, so a half rest starts on beat 1 or 3 of 4/4 and an eighth rest sits on either half of a beat.
   A rest is the absence of a note: the score has no rest type, the generator writes a gap, and the layout draws the rest.
+  With accidentals on, one note of the bar is a chromatic neighbour: a note of the walk followed without a rest by a whole-tone step, raised or lowered by a semitone so that it resolves to the next note by that step, a sharp resolving up or a flat resolving down; never the last note of the bar, never before a rest, and none in a bar that has no such step.
+  The altered note keeps its letter, so the interval rule, measured in letters, stands, and the spelling in the key follows from transposition: a natural appears exactly where the key signature alters the letter, and a double is respelled as the natural of the neighbouring letter, so a raised sixth in A is G natural resolving to G sharp, never F double sharp.
   A cadence on the last segment of a fixed-length run is a per-segment configuration difference for a later round.
 - Each musical dimension is a generator parameter with fixtures and evaluator tests before the controller may move it.
 - The seed, the generator version, and the parameters are stored with every segment, and so is the resulting score, because generators change and history must re-evaluate on its own.
   A run has one seed; segment k's seed is derived from it and k, so one stored run seed reproduces the run and every segment reproduces itself.
 - The generator's chance comes from its own SplitMix64 stream, not the platform's random, so a stored seed keeps its meaning across Kotlin versions.
 
-The 18 bundled measures, the four eighth-note measures and the four rest measures remain as test fixtures: the layout engine and the generator's constraints are held to real content.
+The 18 bundled measures, the four eighth-note measures, the four rest measures and the four accidental measures remain as test fixtures: the layout engine and the generator's constraints are held to real content.
 
 ---
 
@@ -270,9 +274,11 @@ Dimensions, in the order the controller walks them, easiest to move first:
 | Range | five notes, a sixth, an octave, a tenth, a twelfth, both hands together | within and between runs |
 | Rhythm | half notes, quarter notes, eighth notes | within and between runs |
 | Rests | off, on | within and between runs |
+| Accidentals | off, on | within and between runs |
 
-An interval must fit inside the range, and a rhythm rung must fill the meter; a rung that would not is skipped.
-Rests come last because a rest is read against the note values already in play: a rest is a silence of one of them.
+An interval must fit inside the range, a rhythm rung must fill the meter, and accidentals need an interval of at least a step to resolve by; a rung that would not is skipped.
+Rests follow the note values because a rest is read against the note values already in play: a rest is a silence of one of them.
+Accidentals come last because a chromatic neighbour is read against the key and the steps already in play.
 Key, hands and accompaniment stay the player's choices in this version: they are visible settings, and a setting the player chose must not move under them.
 Mode, staves and key join the walk, between lookahead and interval, when their rounds come.
 
@@ -353,6 +359,7 @@ The layout engine never inspects evaluation, except through `noteMarks`.
 The layout engine is native and pure: it lays out a system of measures in staff spaces, justified to a width, with a brace and spanning barlines for the grand staff, key signatures, accidentals, flags, beams and rests.
 Eighths that share a beat are beamed and a beam never crosses a beat; a beamed group's stems follow the head farthest from the middle line, and the beam slants with its first and last heads, half their distance and at most one space.
 Rests are derived, per staff, from the silences between what sounds in a measure, and a silence is split into the largest rests that start at a multiple of their own length and stay inside their beat; a rest takes a column at its onset like a note.
+An accidental is written only when the note differs from what the reader assumes, the key signature at the barline and then every accidental written in the bar, per staff, letter and octave; it sits a fixed gap left of the head on the head's line, takes room in its column that never stretches, and belongs to its note for tinting and masking.
 Every note and every rest inside a bar carries the tick it starts at, which is what the mask and the marks key on: a rest inside a hidden bar is hidden with it, since a rest left on the page would tell which beat is silent.
 The whole rest of a staff silent through a measure, the count-in included, is not content, carries no tick and stays on the page.
 Only the Compose renderer converts staff spaces to pixels, and glyphs are placed by their SMuFL origins from the `BravuraMetrics` table.
@@ -418,8 +425,9 @@ Invariants:
 - **Timeline**: with an injected clock, the beat of every scheduled instant for a run with count-in, lookahead, and a page turn.
 - **Mask**: for each mode preset, the visibility of every segment at every beat, including the exact beat notes disappear.
 - **Reducer**: every legal transition, including disconnect, background, stop, and MIDI before the first performed beat.
-- **Layout**: justification to a width, the brace and spanning barlines, key signature placement in every key, accidentals against the key, the splitting of a silence into rests.
-- **Generator**: every produced score satisfies its config, is deterministic for a seed, and transposes back to C.
+- **Layout**: justification to a width, the brace and spanning barlines, key signature placement in every key, accidentals against the key and remembered within the bar, the splitting of a silence into rests.
+- **Generator**: every produced score satisfies its config, is deterministic for a seed, and transposes back to C, on pitch always and on spelling wherever no double was avoided.
+- **Transposition**: every chromatic neighbour of C into every key keeps its semitone to its resolution with a plain accidental, never a double.
 - **Incremental evaluation**: committing the same segment from a trailing window gives the same outcomes as evaluating it alone with unlimited context.
 - **Running phase**: a slow drift is followed, a sudden jump is not.
 - **Controller**: the thresholds, one dimension per decision, the turn-taking order and the undo, the window emptying on any change, the lookahead only between runs, and every rung of every ladder a configuration the generator satisfies.
@@ -496,9 +504,21 @@ Built:
 - The evaluator checked on a measure with a rest: silence through it is right, a note in it is an extra, the notated gap is not a pause and a hesitation after it still is; its version unchanged.
 - Device check: rests at the phone's staff size on both staves, a hidden bar losing its rests with its notes while the resting staff keeps its whole rest, an extra played in a rest drawn beside it, the level line reading "with rests".
 
+### Round 11: accidentals
+
+Built:
+
+- Fixtures first: four accidental measures beside the twenty-six, a sharp on a ledger line in C, a flat on the bass staff in G, a natural cancelling the key in F, and in D the same sharp twice in a bar drawn once with a natural restoring the letter later, which the layout is held to and the generator never writes.
+- The layout confirmed and pinned: the sharp, flat and natural placed by their SMuFL origin a fixed gap left of the head on the head's line, remembered per staff, letter and octave within the bar and reset at the barline, given fixed room in their column, and belonging to their note for the mask and the marks.
+- Transposition carries an accidental's meaning relative to the key and never writes a double: a double is respelled as the natural of the neighbouring letter, so every key is served with plain accidentals and a natural appears where the key alters the letter.
+- `ExerciseConfig.accidentals` with the readability rule that one note of the bar is a chromatic neighbour resolving by step to the next note, a sharp up or a flat down, never last and never before a rest; the draw comes last, so the generator version is unchanged, pinned by test.
+- The accidentals rung after rests on the controller's walk, off then on; the level line and the summary name it; a stored level without the field reads as before.
+- The evaluator checked on an altered note: right at its own pitch, a wrong pitch at its diatonic neighbour; its version unchanged. A cue beside an altered note always carries its accidental.
+- Device check: sharps, flats and naturals at the phone's staff size on both staves, a natural after a sharp in the same bar, a cue with its flat beside a written natural, a run at the accidentals rung in a flat key, the level line reading "with accidentals".
+
 ### After
 
-- Generator dimensions one at a time: accidentals, chords, other meters, syncopation, each with fixtures first and a rung on its ladder.
+- Generator dimensions one at a time: chords, other meters, syncopation, each with fixtures first and a rung on its ladder.
 - Mode, staves and key on the controller's walk.
 - Latency calibration.
 - History and session summary screens.
