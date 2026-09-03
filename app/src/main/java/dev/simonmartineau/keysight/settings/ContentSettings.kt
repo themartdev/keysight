@@ -11,8 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * What the player reads, as opposed to how the run is presented: the key, the staves and, on
  * the grand staff, what the other hand does. These are the generator dimensions the player
- * chooses; the rest stay at the generator's defaults until the difficulty controller moves
- * them.
+ * chooses; the rest are the difficulty controller's, laid over [exerciseConfig] at its level.
  */
 data class ContentConfig(
     val keySignature: KeySignature,

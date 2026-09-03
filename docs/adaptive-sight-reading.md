@@ -124,13 +124,10 @@ Built and verified:
 - the grand staff, key signatures, systems and pages, the per-tick mask;
 - the continuous run's presentation: the run timeline with a silent segment 0, the visibility policy and its three presets, the mask on every frame, the cursor, the page turn, the run reducer and controller, bundled measures chained in one key;
 - the continuous run's evaluation: segments committed one beat after they end from a three-segment window, the running beat phase, marks behind the cursor, runs and segments in the database with attempts migrated, the run summary, open-ended runs;
-- the generator: every segment from an `ExerciseConfig` and a seed, in every key, on either staff or both, with the other hand resting or holding a note; both staves aligned as one stream of chords; seeds and configurations stored per segment and the run seed per run.
+- the generator: every segment from an `ExerciseConfig` and a seed, in every key, on either staff or both, with the other hand resting or holding a note; both staves aligned as one stream of chords; seeds and configurations stored per segment and the run seed per run;
+- the difficulty controller: a window of recent committed bars, one dimension moved at a time, the lookahead between runs and the music within an open-ended run, its state stored, every move named on the summary.
 
-Next, in the order of section 13:
-
-1. the per-segment difficulty controller.
-
-Then, one generator dimension at a time: eighth notes, rests, accidentals, wider ranges, chords, other meters, and the cadence on the last bar of a fixed-length run.
+Next, in the order of section 13, one generator dimension at a time: eighth notes, rests, accidentals, chords, other meters, and the cadence on the last bar of a fixed-length run.
 
 ---
 
@@ -241,7 +238,7 @@ Principles:
 
 - Generate in C and transpose diatonically into the requested key, so key coverage is free and spelling is consistent.
 - Constrained random walk with a contour (steps that carry on in the bar's direction weigh twice the others, and the direction turns at the edge of the range), and a rhythm vocabulary that is every way to fill the measure with the allowed note values, drawn uniformly.
-  A cadence on the last segment of a fixed-length run is a per-segment configuration difference and comes with the controller.
+  A cadence on the last segment of a fixed-length run is a per-segment configuration difference for a later round.
 - Each musical dimension is a generator parameter with fixtures and evaluator tests before the controller may move it.
 - The seed, the generator version, and the parameters are stored with every segment, and so is the resulting score, because generators change and history must re-evaluate on its own.
   A run has one seed; segment k's seed is derived from it and k, so one stored run seed reproduces the run and every segment reproduces itself.
@@ -255,29 +252,43 @@ The 18 bundled measures remain as test fixtures: the layout engine and the gener
 
 Exposure difficulty and musical difficulty are separate variables and are moved separately.
 
-Dimensions, easiest first:
+Dimensions, in the order the controller walks them, easiest to move first:
 
-| Dimension | Ladder |
-|---|---|
-| Lookahead | 4, 3, 2, 1.5, 1, 0.75, 0.5, 0.25 beats |
-| Mode | Open score, Read ahead, Flash |
-| Staves | one hand, both hands |
-| Key | C, then one accidental, then two, outward on the circle of fifths |
-| Musical | the generator's parameters, one at a time |
+| Dimension | Ladder | Moves |
+|---|---|---|
+| Lookahead | 4, 3, 2, 1.5, 1, 0.75, 0.5, 0.25 beats | between runs, in Flash |
+| Mode | Open score, Read ahead, Flash | the player's, for now |
+| Staves | one hand, both hands | the player's, for now |
+| Key | C, then one accidental, then two, outward on the circle of fifths | the player's, for now |
+| Interval | steps, thirds, fourths, fifths, sixths, octaves | within and between runs |
+| Range | five notes, a sixth, an octave, a tenth, a twelfth, both hands together | within and between runs |
+| Rhythm | half notes, quarter notes; eighths when the layout draws flags | within and between runs |
+
+An interval must fit inside the range, and a rhythm rung must fill the meter; a rung that would not is skipped.
+Key, hands and accompaniment stay the player's choices in this version: they are visible settings, and a setting the player chose must not move under them.
+Mode, staves and key join the walk, between lookahead and interval, when their rounds come.
 
 ### Controller
 
 No learning in the first version.
-The controller runs per committed segment on a window of recent segments:
+The controller decides from a window of the last eight committed segments that were played at exactly the current state, the run's exposure (tempo, click, visibility policy) and the exercise configuration; a segment played at any other state ends the window, so any change, the controller's or the player's, empties it.
+The window's success is the smaller of its pooled pitch accuracy and its pooled rhythm accuracy, the two numbers the score line shows:
 
 ```text
+if the window is short: hold
 if recentSuccess > 90%: step one dimension up
 if recentSuccess < 65%: step one dimension down
 otherwise: hold
 ```
 
-It moves **one dimension at a time**, so every change is interpretable and the player can feel it.
-Within a run, the controller changes the generator's parameters for upcoming segments; the exposure dimensions change between runs so the mode of a run is stable.
+It moves **one dimension at a time**, so every change is interpretable and the player can feel it, and a move empties the window, so no two moves rest on the same evidence.
+Which dimension moves is a walk of the order above, taking turns: a step up goes to the first dimension after the one moved last that can still go up, so the music is never stranded behind the exposure; a step down starts at the dimension moved last and walks back, so the latest step is the first undone.
+
+Within a run, the controller changes the generator's parameters for the segments still to be generated, twelve bars ahead of the cursor in an open-ended run and never a bar already shown; a fixed-length run is generated whole, so its music moves between runs.
+The exposure dimensions change between runs so the mode of a run is stable; a moved lookahead is written into the run settings, where the player sees the chip move.
+The state, the musical level and the dimension moved last, is stored in its own row; the window is computed from stored evaluations, so the next session continues where the last left off.
+
+What moved is always shown: the Ready screen names the level, and the summary names every bar the level changed at ("Harder from bar 13: up to fourths") and the move for the next run ("Easier next run: 4 beats ahead").
 
 Later, the learner model of section 14 replaces the fixed ladders with per-context comfort levels.
 
@@ -374,7 +385,10 @@ MidiEvent
 Evaluation
 - segmentId, evaluatorVersion, resultJson
 
-Session, DifficultyState
+Session
+
+DifficultyState
+- one row: the musical level and the dimension moved last, as JSON
 ```
 
 Invariants:
@@ -383,6 +397,7 @@ Invariants:
 - A run's MIDI, its config, and its segments' scores are enough to re-evaluate the run with any evaluator version.
 - Schema changes ship with a migration and a migration test; the move from attempts to runs converted every existing attempt into a run with one segment per measure, its raw MIDI untouched, and dropped only the whole-run evaluations that no segment could own, since evaluations are derived.
   The generator's columns were added beside the exercise id, which stayed on every segment recorded before.
+  The controller's state is its own table because a move for the next run may be applied to a run that is never recorded; its window is derived from the evaluations, never stored twice.
 
 ---
 
@@ -396,6 +411,7 @@ Invariants:
 - **Generator**: every produced score satisfies its config, is deterministic for a seed, and transposes back to C.
 - **Incremental evaluation**: committing the same segment from a trailing window gives the same outcomes as evaluating it alone with unlimited context.
 - **Running phase**: a slow drift is followed, a sudden jump is not.
+- **Controller**: the thresholds, one dimension per decision, the turn-taking order and the undo, the window emptying on any change, the lookahead only between runs, and every rung of every ladder a configuration the generator satisfies.
 - **Migration**: every schema step, on a device.
 
 ---
@@ -441,13 +457,17 @@ Built:
 
 ### Round 8: the difficulty controller
 
-- The recent-performance window and the one-dimension-at-a-time controller.
-- Within-run movement of generator parameters; between-run movement of exposure.
+Built:
+
+- The recent-performance window from stored evaluations and the one-dimension-at-a-time controller, a pure function with a fixed walk order.
+- Within-run movement of generator parameters through an adapting segment source; between-run movement of the lookahead, written into the settings.
+- Schema version 5: the controller's state. The level on the Ready screen, every move named on the summary.
 - Device check: ten minutes of practice feels matched to the player without touching settings.
 
 ### After
 
-- Generator dimensions one at a time: eighth notes, rests, accidentals, wider ranges, chords, other meters, each with fixtures first.
+- Generator dimensions one at a time: eighth notes, rests, accidentals, chords, other meters, each with fixtures first and a rung on its ladder.
+- Mode, staves and key on the controller's walk.
 - Latency calibration.
 - History and session summary screens.
 - A real corpus, segmented into runs, once generated material stops being enough.

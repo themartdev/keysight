@@ -29,7 +29,9 @@ import java.util.UUID
  * is never raced.
  *
  * An open-ended run is topped up from its [SegmentSource] after every reduce, so the segments
- * ahead of the cursor never run out. [state] is null until the first run is loaded.
+ * ahead of the cursor never run out. [onRunEnded] is told once about every run that started
+ * and ended, with its terminal state, before the run is persisted. [state] is null until the
+ * first run is loaded.
  */
 class RunController(
     private val scope: CoroutineScope,
@@ -39,6 +41,7 @@ class RunController(
     private val history: RunHistory,
     private val ids: () -> String = { UUID.randomUUID().toString() },
     private val wallClock: () -> Long = System::currentTimeMillis,
+    private val onRunEnded: (RunState) -> Unit = {},
 ) {
     private val _state = MutableStateFlow<RunState?>(null)
     val state: StateFlow<RunState?> = _state.asStateFlow()
@@ -96,6 +99,7 @@ class RunController(
         metronome.stop()
         val startedAtNanos = after.startedAtNanos ?: return
         val lastSegment = after.lastSegment ?: return
+        onRunEnded(after)
         persist(
             recordOf(after.context, lastSegment, startedAtNanos, after.captured, RunStatus.ABORTED, after.reason),
             after.evaluation.segments.take(lastSegment),
@@ -131,6 +135,7 @@ class RunController(
         val done = _state.value as? Summary ?: return
         runJob = null
         metronome.stop()
+        onRunEnded(done)
         persist(recordOf(done.context, done.lastSegment, done.startedAtNanos, done.captured, RunStatus.COMPLETED, null), done.evaluation.segments)
     }
 
@@ -139,15 +144,20 @@ class RunController(
         topUp()
     }
 
-    /** Keeps [SegmentSource.SEGMENTS_AHEAD] segments beyond the one being performed in an open-ended run that has not been stopped. */
+    /**
+     * Keeps [SegmentSource.SEGMENTS_AHEAD] segments beyond the one being performed in an
+     * open-ended run that has not been stopped, one segment per bar as the cursor advances, so
+     * every segment is produced as late as it can be and reads the most it can of the run.
+     */
     private fun topUp() {
         val source = source ?: return
         val running = _state.value as? Running ?: return
         if (!running.context.config.isOpenEnded || running.stopAfter != null) return
         val timeline = running.context.timeline
         val current = timeline.segmentAt(timeline.beatAtNanos(clock.nowNanos() - running.startedAtNanos))
-        if (running.context.lastSegment - current >= SegmentSource.SEGMENTS_AHEAD) return
-        val more = source.next(SegmentSource.SEGMENT_BATCH, firstIndex = running.context.lastSegment + 1)
+        val missing = SegmentSource.SEGMENTS_AHEAD - (running.context.lastSegment - current)
+        if (missing <= 0) return
+        val more = source.next(missing, firstIndex = running.context.lastSegment + 1, committed = running.committed)
         _state.value = RunMachine.reduce(running, RunEvent.Extended(more))
     }
 

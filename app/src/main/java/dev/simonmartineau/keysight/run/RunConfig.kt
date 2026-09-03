@@ -67,7 +67,7 @@ data class RunConfig(
             segmentCount = 8,
         )
 
-        /** The lookahead ladder the difficulty controller will walk, easiest first. */
+        /** The lookahead ladder the difficulty controller walks between runs, easiest first. */
         val LOOKAHEAD_LADDER_BEATS = listOf(4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5, 0.25)
     }
 }

@@ -19,8 +19,9 @@ run clock, generated measures are engraved with Bravura on a treble, bass or gra
 key, shown and hidden on the timeline, and the performance is captured, scored for pitch and
 rhythm with both hands aligned as one stream, and stored with its raw MIDI, its seeds and its
 configuration so history re-evaluates on its own.
-Content is generated from a seed and an `ExerciseConfig`; the difficulty controller that moves
-the configuration is the next round.
+Content is generated from a seed and an `ExerciseConfig`, and a difficulty controller moves one
+dimension at a time from a window of recent bars: the lookahead between runs, the music within
+an open-ended run, every move named on the summary.
 The JVM test suite covers everything except the Android shells, which are verified on a device.
 
 ## Building

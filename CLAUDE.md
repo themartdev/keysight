@@ -30,9 +30,10 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   score with a resting measure 0) and `measureAsScore` (its inverse), `SegmentSource` (a run's
   segments by index) and `GeneratedSegmentSource` (the generator over a run seed), `RunContext`
   (with the run seed), `RunState`, `RunEvent`, the pure
-  `RunMachine` reducer that also commits each segment's evaluation at its capture tail,
-  `RunController` (the coroutine that drives it and tops up an open-ended run), `RunHistory`
-  and `RunRecord`.
+  `RunMachine` reducer that also commits each segment's evaluation at its capture tail
+  (`RunState.committed` pairs each performed segment with its result),
+  `RunController` (the coroutine that drives it, tops up an open-ended run one segment at a
+  time and reports every ended run), `RunHistory` and `RunRecord`.
 - `audio/` `ClickSynth` and `ClickTrack` (pure PCM on a frame line), `Metronome`, and
   `AudioTrackMetronome`, which anchors beat 0 to the audio timestamp.
 - `evaluation/` `PlayedNotes` (MIDI to notes on the run's beat line), `NoteAlignment` (edit
@@ -43,16 +44,28 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   summary reads), and `PerformanceEvaluator` with `EVALUATOR_VERSION`: `commit` judges one
   segment from a window of three (the previous segment's missing notes, the segment, the next
   one) once its capture tail has passed, and `evaluate` replays every commit from stored MIDI.
+- `difficulty/` the controller of the plan's section 8, pure: `Dimension` (the fixed walk
+  order, lookahead then interval, range, rhythm, each saying whether it moves within a run),
+  `Ladders` (every dimension's rungs, easiest first, in one place, over the generic `Ladder`),
+  `MusicalLevel` (the generator fields the controller owns, as values), `DifficultyState`
+  (the level and the dimension moved last), `Evidence` (`SegmentEvidence` from one committed
+  segment, the `trailingWindow` at the current state, `successOf`), `DifficultyController`
+  (`decide`, a pure function from a position and evidence to the next position and at most one
+  `Move`), `DifficultyStore` (the persistence port), `DifficultyTracker` (the state and
+  evidence across a session) and `AdaptiveSegmentSource` (the generator at the level the
+  tracker decides for every segment still to come).
 - `settings/` `RunSettings`, `ContentSettings` (key, hands, accompaniment, and the
   `ExerciseConfig` they make over the generator's defaults) and `ThemeSettings` (system, light,
   dark), SharedPreferences-backed.
 - `data/` Room: entities (`runs` with the run seed, `segments` with their origin columns,
-  `midi_events` by run, `evaluation_results` by segment and evaluator version, `sessions`),
-  `RunDao` and `SessionDao`, `KeySightDatabase` (schema version 4), `Migrations.kt` (2 to 3
-  turns every attempt row into a run with one segment per measure, reading both the
-  `FlashConfig` and the `RunConfig` snapshot shapes through the pure `LegacyAttempts.kt`; 3 to
-  4 adds the seed to runs and rebuilds segments with a nullable exercise id and the generator
-  columns), `RoomRunHistory`, and the pure mappers.
+  `midi_events` by run, `evaluation_results` by segment and evaluator version, `sessions`,
+  `difficulty_state`, one row of JSON), `RunDao` (with `recentCommitted`, the last committed
+  segments across runs with the configurations they were played under), `SessionDao` and
+  `DifficultyDao`, `KeySightDatabase` (schema version 5), `Migrations.kt` (2 to 3 turns every
+  attempt row into a run with one segment per measure, reading both the `FlashConfig` and the
+  `RunConfig` snapshot shapes through the pure `LegacyAttempts.kt`; 3 to 4 adds the seed to
+  runs and rebuilds segments with a nullable exercise id and the generator columns; 4 to 5
+  adds the controller's table), `RoomRunHistory`, `RoomDifficultyStore`, and the pure mappers.
 - `notation/` the pure layout engine: `StaffPosition`, `Glyph` (SMuFL codepoints),
   `BravuraMetrics`, `AccidentalState` (when an accidental is written), `ScoreLayoutEngine`
   producing a `SystemLayout` (a row of measures across all staves, justified to a width) and a
@@ -70,8 +83,8 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   the generator, test fixtures only: `BundledMeasuresTest` holds them to the layout envelope
   and to the generator's constraints (`violations`, the test-side statement of the contract).
 
-Not built yet: difficulty adaptation and session summaries; the plan's round ladder covers
-them in order.
+Not built yet: session summaries and the later generator dimensions; the plan's round ladder
+covers them in order.
 
 ## Build and test
 
@@ -103,8 +116,8 @@ from this environment.
 - The Kotlin, Compose-compiler, serialization-plugin and KSP versions are pinned to whatever AGP
   embeds. Never bump one of them alone; they move with AGP or not at all.
 - New logic goes in a JVM unit test unless it genuinely needs a device.
-  `score`, `exercise`, `midi`, `timing`, `run`, `evaluation`, `notation` and the data mappers
-  have no Android imports; keep it that way so they stay testable on the JVM.
+  `score`, `exercise`, `midi`, `timing`, `run`, `evaluation`, `difficulty`, `notation` and
+  the data mappers have no Android imports; keep it that way so they stay testable on the JVM.
 - Musical time in the score is integer `Ticks` (960 per quarter note), never a double.
   Doubles are for wall-clock beats in `RunConfig`, `VisibilityPolicy` and `RunTimeline` only.
 - A run's score is one `Score` whose measure k is segment k, measure 0 resting; the run's beat
@@ -129,6 +142,22 @@ from this environment.
   generator test and, if a judgement changes, its evaluator test before the controller may move
   it; the layout draws no rests within a measure, no dots and no flags yet, so those dimensions
   wait for the layout.
+- Difficulty is moved by the controller, never silently. It decides from the trailing window
+  of `DifficultyController.WINDOW_SEGMENTS` committed segments played at exactly the current
+  state (run exposure and exercise configuration), whose success is the smaller of the pooled
+  pitch and rhythm accuracies the score line shows: above 90% one dimension steps up, below
+  65% one steps down, else it holds, and a short window holds. One dimension per decision,
+  and a move empties the window, so no two moves share evidence. The walk takes turns in
+  `Dimension` order: up goes to the next dimension after the last moved that can move, down
+  starts at the last moved and walks back. The lookahead moves only between runs and only in
+  Flash, and is written into the run settings; the musical dimensions move within an
+  open-ended run for the segments still to be generated (`SegmentSource.SEGMENTS_AHEAD` bars
+  ahead of the cursor, never a segment already shown) and between runs otherwise. Key, hands,
+  accompaniment, mode, tempo and length are the player's. The state (level and last moved) is
+  one row; the window is derived from stored evaluations, so both survive a restart. A new
+  dimension is a `Dimension` entry, its `Ladder` and its case in `DifficultyController.step`.
+  What moved is always on screen: the Ready line names the level, the summary names every bar
+  the level changed at and the move for the next run, and the lookahead chip moves.
 - A segment is committed once, one beat after it ends, and never revised: a commit sees only
   the events that had arrived by then, so a live run and a replay from history agree. Every
   played note gets exactly one committed outcome (a note that arrives after its bar was judged

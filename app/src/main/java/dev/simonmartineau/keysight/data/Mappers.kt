@@ -1,9 +1,14 @@
 package dev.simonmartineau.keysight.data
 
+import dev.simonmartineau.keysight.data.dao.CommittedRow
+import dev.simonmartineau.keysight.data.entity.DifficultyStateEntity
 import dev.simonmartineau.keysight.data.entity.EvaluationResultEntity
 import dev.simonmartineau.keysight.data.entity.MidiEventEntity
 import dev.simonmartineau.keysight.data.entity.RunEntity
 import dev.simonmartineau.keysight.data.entity.SegmentEntity
+import dev.simonmartineau.keysight.difficulty.DifficultyState
+import dev.simonmartineau.keysight.difficulty.SegmentEvidence
+import dev.simonmartineau.keysight.difficulty.evidenceOf
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.exercise.ExerciseConfig
 import dev.simonmartineau.keysight.midi.MidiEvent
@@ -97,3 +102,15 @@ fun EvaluationResult.toEntity(segmentId: String, evaluatedAtEpochMillis: Long): 
 
 fun EvaluationResultEntity.toResult(): EvaluationResult =
     keySightJson.decodeFromString(EvaluationResult.serializer(), resultJson)
+
+/** A stored commit as the difficulty window sees it, through the same function a live commit goes through. */
+fun CommittedRow.toEvidence(): SegmentEvidence = evidenceOf(
+    runConfig = keySightJson.decodeFromString(RunConfig.serializer(), runConfigJson),
+    config = exerciseConfigJson?.let { keySightJson.decodeFromString(ExerciseConfig.serializer(), it) },
+    result = keySightJson.decodeFromString(EvaluationResult.serializer(), resultJson),
+)
+
+fun DifficultyState.toEntity(updatedAtEpochMillis: Long): DifficultyStateEntity =
+    DifficultyStateEntity(stateJson = keySightJson.encodeToString(DifficultyState.serializer(), this), updatedAtEpochMillis = updatedAtEpochMillis)
+
+fun DifficultyStateEntity.toState(): DifficultyState = keySightJson.decodeFromString(DifficultyState.serializer(), stateJson)

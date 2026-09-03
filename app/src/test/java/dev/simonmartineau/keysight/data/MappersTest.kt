@@ -2,6 +2,12 @@ package dev.simonmartineau.keysight.data
 
 import dev.simonmartineau.keysight.Fixtures
 import dev.simonmartineau.keysight.SECOND_NANOS
+import dev.simonmartineau.keysight.data.dao.CommittedRow
+import dev.simonmartineau.keysight.difficulty.DifficultyState
+import dev.simonmartineau.keysight.difficulty.Dimension
+import dev.simonmartineau.keysight.difficulty.Ladders
+import dev.simonmartineau.keysight.difficulty.MusicalLevel
+import dev.simonmartineau.keysight.difficulty.evidenceOf
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.evaluation.PerformanceEvaluator
 import dev.simonmartineau.keysight.evaluation.PitchResult
@@ -13,6 +19,7 @@ import dev.simonmartineau.keysight.midi.MidiEvent
 import dev.simonmartineau.keysight.run.AbortReason
 import dev.simonmartineau.keysight.run.GeneratedSegmentSource
 import dev.simonmartineau.keysight.run.RunConfig
+import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.RunRecord
 import dev.simonmartineau.keysight.run.RunStatus
 import dev.simonmartineau.keysight.run.SegmentOrigin
@@ -71,7 +78,7 @@ class MappersTest {
     @Test
     fun `a generated segment stores its generator version, seed and config beside its score`() {
         val config = ExerciseConfig(KeySignature(2), Hands.BOTH, Accompaniment.HELD_NOTE)
-        val generated = GeneratedSegmentSource(runSeed = 7L, config).next(2, firstIndex = 1)
+        val generated = GeneratedSegmentSource(runSeed = 7L, config).next(2, firstIndex = 1, committed = emptyList())
         val stored = record.copy(segments = generated, seed = 7L)
 
         val rows = stored.toSegmentEntities()
@@ -177,5 +184,36 @@ class MappersTest {
         val empty = EvaluationResult(1, PitchResult(emptyList()))
 
         assertEquals(empty, empty.toEntity("a", 0).toResult())
+    }
+
+    @Test
+    fun `a stored commit becomes the same evidence as a live one`() {
+        val config = ExerciseConfig(KeySignature(2), Hands.BOTH, Accompaniment.HELD_NOTE)
+        val generated = GeneratedSegmentSource(runSeed = 7L, config).next(1, firstIndex = 1, committed = emptyList()).single()
+        val stored = record.copy(segments = listOf(generated), seed = 7L)
+        val timeline = RunContext(listOf(generated), run.config.copy(segmentCount = 1), seed = 7L).timeline
+        val evaluation = PerformanceEvaluator.evaluate(stored.score, timeline, startedAtNanos = 0, events = events).segments.single()
+        val row = CommittedRow(
+            runConfigJson = stored.toEntity().configJson,
+            exerciseConfigJson = stored.toSegmentEntities().single().exerciseConfigJson,
+            resultJson = evaluation.toEntity("run-1:1", 0).resultJson,
+        )
+
+        assertEquals(evidenceOf(stored.config, generated, evaluation), row.toEvidence())
+        assertNull(row.copy(exerciseConfigJson = null).toEvidence().config)
+    }
+
+    @Test
+    fun `the difficulty state round-trips through its row with its defaults written out`() {
+        val state = DifficultyState(MusicalLevel.DEFAULT.copy(maxInterval = 4, noteValues = Ladders.RHYTHM.easiest), lastMoved = Dimension.RANGE)
+
+        val entity = state.toEntity(updatedAtEpochMillis = 9)
+
+        assertEquals(1, entity.id)
+        assertEquals(9, entity.updatedAtEpochMillis)
+        assertEquals(state, entity.toState())
+        assertTrue(DifficultyState.DEFAULT.toEntity(0).stateJson.contains("\"lastMoved\":null"))
+        assertEquals(DifficultyState.DEFAULT, entity.copy(stateJson = "{}").toState())
+        assertEquals(DifficultyState.DEFAULT, entity.copy(stateJson = """{"level":{"maxInterval":2,"rightHandRange":{"lowest":{"step":"C","octave":4},"highest":{"step":"G","octave":4}},"leftHandRange":{"lowest":{"step":"C","octave":3},"highest":{"step":"G","octave":3}},"noteValues":["WHOLE","HALF","QUARTER"]},"lastMoved":null,"later":1}""").toState())
     }
 }

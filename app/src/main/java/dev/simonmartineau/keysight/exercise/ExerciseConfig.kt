@@ -55,8 +55,9 @@ enum class Accompaniment(val label: String) {
  * between consecutive melody notes, in letters: 1 is stepwise, 2 allows thirds, 4 fifths;
  * a repeated note is always allowed.
  *
- * Only [keySignature], [hands] and [accompaniment] are exposed in the settings; the rest stay
- * at [DEFAULT] until the controller round moves them.
+ * Only [keySignature], [hands] and [accompaniment] are exposed in the settings; the rest are
+ * the difficulty controller's, laid over them by its
+ * [dev.simonmartineau.keysight.difficulty.MusicalLevel].
  */
 @Serializable
 data class ExerciseConfig(
@@ -100,22 +101,7 @@ data class ExerciseConfig(
      * four quarters.
      */
     val rhythms: List<List<NoteValue>>
-        get() {
-            val values = noteValues.sortedByDescending { it.ticks }
-            val measure = timeSignature.ticksPerMeasure
-            val result = ArrayList<List<NoteValue>>()
-            fun fill(prefix: List<NoteValue>, filled: Ticks) {
-                if (filled == measure) {
-                    result += prefix
-                    return
-                }
-                for (value in values) {
-                    if (filled + value.ticks <= measure) fill(prefix + value, filled + value.ticks)
-                }
-            }
-            fill(emptyList(), Ticks.ZERO)
-            return result
-        }
+        get() = rhythmsFilling(noteValues, timeSignature.ticksPerMeasure)
 
     companion object {
         /** Wider than an octave is never a sight-reading interval for this trainer. */
@@ -127,4 +113,21 @@ data class ExerciseConfig(
 
         val DEFAULT = ExerciseConfig(KeySignature.C_MAJOR, Hands.RIGHT)
     }
+}
+
+/** Every way to fill [measure] with [values], longest value first at every position; empty when none does. */
+fun rhythmsFilling(values: Set<NoteValue>, measure: Ticks): List<List<NoteValue>> {
+    val ordered = values.sortedByDescending { it.ticks }
+    val result = ArrayList<List<NoteValue>>()
+    fun fill(prefix: List<NoteValue>, filled: Ticks) {
+        if (filled == measure) {
+            result += prefix
+            return
+        }
+        for (value in ordered) {
+            if (filled + value.ticks <= measure) fill(prefix + value, filled + value.ticks)
+        }
+    }
+    fill(emptyList(), Ticks.ZERO)
+    return result
 }

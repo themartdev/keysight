@@ -77,10 +77,14 @@ class RunControllerTest {
         private var served = 0
 
         var lastFirstIndex = 0
+        var lastCount = 0
+        var lastCommitted: List<CommittedSegment> = emptyList()
 
-        override fun next(count: Int, firstIndex: Int): List<Segment> {
+        override fun next(count: Int, firstIndex: Int, committed: List<CommittedSegment>): List<Segment> {
             calls++
             lastFirstIndex = firstIndex
+            lastCount = count
+            lastCommitted = committed
             return (1..count).map { Fixtures.segment("more-${++served}", Fixtures.cdef) }
         }
     }
@@ -89,6 +93,7 @@ class RunControllerTest {
         val clock = TestClock(scope.testScheduler)
         val metronome = FakeMetronome(clock)
         val history = FakeHistory()
+        val ended = mutableListOf<RunState>()
         private var nextId = 0
         val controller = RunController(
             scope = scope,
@@ -98,6 +103,7 @@ class RunControllerTest {
             history = history,
             ids = { "run-${++nextId}" },
             wallClock = { WALL_EPOCH + scope.testScheduler.currentTime },
+            onRunEnded = { ended += it },
         )
         val state get() = controller.state.value
 
@@ -161,6 +167,8 @@ class RunControllerTest {
         assertEquals(twoBars.score, record.score)
         assertEquals(twoBars.config, record.config)
         assertEquals(summary.evaluation.segments, evaluations)
+        assertEquals(listOf<RunState>(summary), rig.ended)
+        assertEquals(twoBars.segments.zip(evaluations, ::CommittedSegment), summary.committed)
     }
 
     @Test
@@ -307,6 +315,8 @@ class RunControllerTest {
         assertEquals(listOf(note), record.events)
         assertEquals(twoBars.score, record.score)
         assertEquals(1, evaluations.size)
+        assertEquals(listOf<RunState>(aborted), rig.ended)
+        assertEquals(1, aborted.committed.size)
     }
 
     @Test
@@ -323,6 +333,7 @@ class RunControllerTest {
         val aborted = assertIs<Aborted>(rig.state)
         assertNull(aborted.startedAtNanos)
         assertTrue(rig.history.records.isEmpty())
+        assertTrue(rig.ended.isEmpty(), "a run that never started did not end")
         assertEquals(1, rig.metronome.stops)
     }
 
@@ -397,31 +408,42 @@ class RunControllerTest {
     }
 
     @Test
-    fun `an open-ended run is topped up ahead of the cursor and ends where the player stops`() = runTest {
+    fun `an open-ended run is topped up one segment at a time ahead of the cursor and ends where the player stops`() = runTest {
         val rig = Rig(this)
         val source = FakeSource()
-        val initial = SegmentSource.SEGMENTS_AHEAD + SegmentSource.SEGMENT_BATCH
+        val initial = SegmentSource.SEGMENTS_AHEAD
         val open = RunContext((1..initial).map { Fixtures.segment("first-$it", Fixtures.cdef) }, Fixtures.slowConfig.copy(segmentCount = null), seed = 42L)
         assertFailsWith<IllegalArgumentException> { rig.controller.load(open) }
         rig.controller.load(open, source)
         rig.controller.start()
 
-        // Segment 8's tail ends at 37 s, when the cursor is in segment 9: only 11 segments remain ahead.
-        advanceTimeBy(300 + 37_000 - 1)
+        // Twelve segments are ahead of the count-in; as the cursor enters segment 1 at 4.3 s only eleven are.
+        advanceTimeBy(300 + 4000 - 1)
         runCurrent()
         assertEquals(initial, rig.state!!.context.segments.size)
         assertEquals(0, source.calls)
         advanceTimeBy(1)
         runCurrent()
-        val extended = assertIs<Performing>(rig.state)
-        assertEquals(initial + SegmentSource.SEGMENT_BATCH, extended.context.segments.size)
+        assertEquals(initial + 1, rig.state!!.context.segments.size)
         assertEquals(1, source.calls)
+        assertEquals(1, source.lastCount)
         assertEquals(initial + 1, source.lastFirstIndex)
-        assertEquals(8, extended.evaluation.committedCount)
+        assertTrue(source.lastCommitted.isEmpty())
         assertTrue(rig.metronome.lastTimeline!!.openEnded)
 
-        advanceTimeBy(1000)
+        // Segment 1 commits at 9.3 s, when the cursor is in segment 2: one more segment, and the commit is passed along.
+        advanceTimeBy(5000)
         runCurrent()
+        val extended = assertIs<Performing>(rig.state)
+        assertEquals(initial + 2, extended.context.segments.size)
+        assertEquals(2, source.calls)
+        assertEquals(1, extended.evaluation.committedCount)
+        assertEquals(listOf("first-1"), source.lastCommitted.map { (it.segment.origin as SegmentOrigin.Bundled).exerciseId })
+        assertEquals(extended.evaluation.segments, source.lastCommitted.map { it.result })
+
+        advanceTimeBy(4000 * 7 + 1000)
+        runCurrent()
+        assertEquals(9, source.calls)
         rig.controller.stop()
         runCurrent()
         assertEquals(9, assertIs<Performing>(rig.state).stopAfter)
@@ -431,13 +453,14 @@ class RunControllerTest {
         val summary = assertIs<Summary>(rig.state)
         assertEquals(9, summary.lastSegment)
         assertEquals(9, summary.evaluation.committedCount)
-        assertEquals(1, source.calls)
+        assertEquals(9, source.calls)
 
         advanceUntilIdle()
         val (record, evaluations) = rig.history.records.single()
         assertEquals(9, record.segments.size)
         assertEquals(9, evaluations.size)
         assertNull(record.config.segmentCount)
+        assertEquals(listOf<RunState>(summary), rig.ended)
     }
 
     private companion object {

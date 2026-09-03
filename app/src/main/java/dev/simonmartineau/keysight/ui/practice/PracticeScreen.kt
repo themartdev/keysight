@@ -40,6 +40,7 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.simonmartineau.keysight.di.AppContainer
+import dev.simonmartineau.keysight.difficulty.Decision
 import dev.simonmartineau.keysight.exercise.Accompaniment
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiConnection
@@ -71,6 +72,7 @@ fun PracticeScreen(container: AppContainer) {
     val config by viewModel.config.collectAsStateWithLifecycle()
     val content by viewModel.content.collectAsStateWithLifecycle()
     val theme by viewModel.theme.collectAsStateWithLifecycle()
+    val nextRun by viewModel.nextRun.collectAsStateWithLifecycle()
 
     LifecycleStartEffect(Unit) {
         onStopOrDispose { viewModel.onBackgrounded() }
@@ -82,6 +84,7 @@ fun PracticeScreen(container: AppContainer) {
         config = config,
         content = content,
         theme = theme,
+        nextRun = nextRun,
         actions = PracticeActions(
             start = viewModel::start,
             stop = viewModel::stop,
@@ -118,7 +121,8 @@ class PracticeActions(
 
 /**
  * The one screen. While a run is running the settings row gives way to the page, so the two
- * systems being read get the room; settings come back with the summary.
+ * systems being read get the room; settings come back with the summary. [nextRun] is what
+ * the difficulty controller decided when the run on screen ended, if it moved anything.
  */
 @Composable
 fun PracticeContent(
@@ -128,6 +132,7 @@ fun PracticeContent(
     content: ContentConfig,
     theme: ThemeMode,
     actions: PracticeActions,
+    nextRun: Decision? = null,
 ) {
     val settingsShown = state == null || state is RunState.Ready || state.isTerminal
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -151,7 +156,7 @@ fun PracticeContent(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
-                Stage(state)
+                Stage(state, nextRun)
             }
             ActionBar(state, connection, actions)
         }
@@ -297,7 +302,7 @@ private fun <T> ChoiceMenu(current: String, choices: List<T>, label: (T) -> Stri
 }
 
 @Composable
-private fun Stage(state: RunState?) {
+private fun Stage(state: RunState?, nextRun: Decision?) {
     when (state) {
         null -> CircularProgressIndicator()
         is RunState.Ready -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
@@ -305,19 +310,25 @@ private fun Stage(state: RunState?) {
                 RunPage(state.context.score, Modifier.fillMaxSize(), mask = runMaskBeforeStart(state.context.timeline, state.context.policy))
             }
             Spacer(Modifier.height(8.dp))
-            Text(
-                state.context.config.description(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+            listOfNotNull(state.context.config.description(), levelLine(state.context)).forEach { line ->
+                Text(
+                    line,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
         is RunState.Running -> RunStage(state)
-        is RunState.Summary -> SummaryPanel(state)
+        is RunState.Summary -> SummaryPanel(state, nextRun)
         is RunState.Aborted -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Run stopped", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
             Text(state.reason.message(), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            nextRun?.let(::nextRunLine)?.let { line ->
+                Spacer(Modifier.height(8.dp))
+                Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            }
         }
     }
 }
@@ -393,7 +404,7 @@ private fun rememberMarks(context: RunContext, evaluation: RunEvaluation): (Page
 }
 
 @Composable
-private fun SummaryPanel(summary: RunState.Summary) {
+private fun SummaryPanel(summary: RunState.Summary, nextRun: Decision?) {
     val evaluation = summary.evaluation
     val pitch = evaluation.pitch
     val rhythm = evaluation.rhythm
@@ -422,7 +433,9 @@ private fun SummaryPanel(summary: RunState.Summary) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             RunSummaryPage(performed.score, Modifier.fillMaxSize(), marks)
         }
-        (remarks(pitch, rhythm) + listOfNotNull(weakestBarsLine(evaluation))).forEach { remark ->
+        val lines = remarks(pitch, rhythm) + listOfNotNull(weakestBarsLine(evaluation)) +
+            levelChangeLines(performed.segments) + listOfNotNull(nextRun?.let(::nextRunLine))
+        lines.forEach { remark ->
             Text(
                 remark,
                 style = MaterialTheme.typography.bodyMedium,

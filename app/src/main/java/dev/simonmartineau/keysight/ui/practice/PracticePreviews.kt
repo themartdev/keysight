@@ -9,6 +9,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import dev.simonmartineau.keysight.difficulty.Decision
+import dev.simonmartineau.keysight.difficulty.DifficultyState
+import dev.simonmartineau.keysight.difficulty.Dimension
+import dev.simonmartineau.keysight.difficulty.Direction
+import dev.simonmartineau.keysight.difficulty.Ladders
+import dev.simonmartineau.keysight.difficulty.Move
+import dev.simonmartineau.keysight.difficulty.MusicalLevel
+import dev.simonmartineau.keysight.difficulty.Position
 import dev.simonmartineau.keysight.evaluation.BeatPhase
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.evaluation.NoteOutcome
@@ -32,6 +40,7 @@ import dev.simonmartineau.keysight.run.RunState
 import dev.simonmartineau.keysight.run.Segment
 import dev.simonmartineau.keysight.run.SegmentOrigin
 import dev.simonmartineau.keysight.run.VisibilityMode
+import dev.simonmartineau.keysight.run.generatedSegment
 import dev.simonmartineau.keysight.run.runMask
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature
@@ -148,9 +157,22 @@ private object PreviewData {
 
     /** Four generated bars of hands together in G major, seeded so the preview is stable. */
     val handsTogetherRun = RunContext(
-        segments = GeneratedSegmentSource(runSeed = 7L, ExerciseConfig(KeySignature(1), Hands.BOTH, Accompaniment.HELD_NOTE)).next(4, firstIndex = 1),
+        segments = GeneratedSegmentSource(runSeed = 7L, ExerciseConfig(KeySignature(1), Hands.BOTH, Accompaniment.HELD_NOTE)).next(4, firstIndex = 1, committed = emptyList()),
         config = config.copy(segmentCount = 4),
         seed = 7L,
+    )
+
+    /** An open-ended run the controller moved up to fourths from bar 3, stopped after bar 4, and moved the lookahead for the next. */
+    private val movedConfig = config.copy(segmentCount = null)
+    private val movedLevel = MusicalLevel.DEFAULT.copy(maxInterval = 3)
+    val movedRun = RunContext(
+        segments = (1..4).map { generatedSegment(7L, it, (if (it >= 3) movedLevel else MusicalLevel.DEFAULT).applyTo(ExerciseConfig.DEFAULT)) },
+        config = movedConfig,
+        seed = 7L,
+    )
+    val movedDecision = Decision(
+        Position(movedConfig.copy(lookaheadBeats = Ladders.LOOKAHEAD.rungs[1]), DifficultyState(movedLevel, Dimension.LOOKAHEAD)),
+        Move(Dimension.LOOKAHEAD, Direction.UP),
     )
 
     val connection: MidiConnection = MidiConnection.Connected("Preview keyboard")
@@ -210,6 +232,22 @@ private object PreviewData {
 
     val aborted = RunState.Aborted(run, AbortReason.MIDI_DISCONNECTED, startedAtNanos = 0L, captured = emptyList(), lastSegment = 3, evaluation = partlyCommitted)
 
+    /** [movedRun] summarised: every bar clean, so the level lines are the only remarks. */
+    val movedSummary = RunState.Summary(
+        movedRun,
+        startedAtNanos = 0L,
+        captured = emptyList(),
+        lastSegment = 4,
+        evaluation = RunEvaluation(
+            (1..4).map { segment ->
+                val outcomes = movedRun.score.notesInMeasure(segment).map { NoteOutcome.Correct(it, played(it.pitch.midiNoteNumber, movedRun.timeline.beatsOf(it.onset))) }
+                val beats = movedRun.score.notes.associate { it.id to movedRun.timeline.beatsOf(it.onset) }
+                EvaluationResult(PerformanceEvaluator.EVALUATOR_VERSION, PitchResult(outcomes), RhythmAnalysis.analyse(outcomes, beats, 0.0))
+            },
+            phaseBeats = 0.0,
+        ),
+    )
+
     val actions = PracticeActions(
         start = {},
         stop = {},
@@ -228,7 +266,7 @@ private object PreviewData {
 }
 
 @Composable
-private fun PreviewScreen(state: RunState?, config: RunConfig = PreviewData.config) {
+private fun PreviewScreen(state: RunState?, config: RunConfig = PreviewData.config, nextRun: Decision? = null) {
     KeySightTheme {
         PracticeContent(
             state = state,
@@ -237,6 +275,7 @@ private fun PreviewScreen(state: RunState?, config: RunConfig = PreviewData.conf
             content = PreviewData.content,
             theme = ThemeMode.SYSTEM,
             actions = PreviewData.actions,
+            nextRun = nextRun,
         )
     }
 }
@@ -291,6 +330,14 @@ private fun SummaryDarkPreview() = PreviewScreen(PreviewData.summary)
 @Preview(name = "Summary, tablet", showBackground = true, widthDp = 1000, heightDp = 700)
 @Composable
 private fun SummaryTabletPreview() = PreviewScreen(PreviewData.summary)
+
+@Preview(name = "Summary, level moved and lookahead moved for the next run", showBackground = true)
+@Composable
+private fun SummaryMovedPreview() = PreviewScreen(PreviewData.movedSummary, PreviewData.movedDecision.position.runConfig, PreviewData.movedDecision)
+
+@Preview(name = "Ready, open-ended at the moved level", showBackground = true)
+@Composable
+private fun ReadyMovedPreview() = PreviewScreen(RunState.Ready(PreviewData.movedRun), PreviewData.movedRun.config)
 
 @Preview(name = "Aborted", showBackground = true)
 @Composable

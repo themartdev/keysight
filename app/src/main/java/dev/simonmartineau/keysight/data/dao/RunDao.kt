@@ -11,6 +11,13 @@ import dev.simonmartineau.keysight.data.entity.RunEntity
 import dev.simonmartineau.keysight.data.entity.SegmentEntity
 import kotlinx.coroutines.flow.Flow
 
+/** A committed segment with the configurations it was played under: what the difficulty window is made of. */
+data class CommittedRow(
+    val runConfigJson: String,
+    val exerciseConfigJson: String?,
+    val resultJson: String,
+)
+
 @Dao
 interface RunDao {
 
@@ -76,4 +83,23 @@ interface RunDao {
         """,
     )
     suspend fun latestEvaluationsForRun(runId: String): List<EvaluationResultEntity>
+
+    /**
+     * The most recent [limit] committed segments across all runs, newest first, each with its
+     * latest evaluation and the configurations it was played under.
+     */
+    @Query(
+        """
+        SELECT runs.configJson AS runConfigJson, segments.exerciseConfigJson AS exerciseConfigJson, evaluation_results.resultJson AS resultJson
+        FROM evaluation_results
+        JOIN segments ON segments.id = evaluation_results.segmentId
+        JOIN runs ON runs.id = segments.runId
+        WHERE evaluation_results.evaluatorVersion = (
+            SELECT MAX(evaluatorVersion) FROM evaluation_results AS latest WHERE latest.segmentId = segments.id
+          )
+        ORDER BY runs.startedAtEpochMillis DESC, segments.segmentIndex DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun recentCommitted(limit: Int): List<CommittedRow>
 }

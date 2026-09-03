@@ -1,10 +1,17 @@
 package dev.simonmartineau.keysight.ui.practice
 
+import dev.simonmartineau.keysight.difficulty.Decision
+import dev.simonmartineau.keysight.difficulty.Dimension
+import dev.simonmartineau.keysight.difficulty.Direction
+import dev.simonmartineau.keysight.difficulty.MusicalLevel
 import dev.simonmartineau.keysight.evaluation.Continuity
 import dev.simonmartineau.keysight.evaluation.PitchResult
 import dev.simonmartineau.keysight.evaluation.RhythmResult
 import dev.simonmartineau.keysight.evaluation.RunEvaluation
 import dev.simonmartineau.keysight.run.RunConfig
+import dev.simonmartineau.keysight.run.RunContext
+import dev.simonmartineau.keysight.run.Segment
+import dev.simonmartineau.keysight.run.SegmentOrigin
 import dev.simonmartineau.keysight.run.VisibilityMode
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.Score
@@ -86,6 +93,46 @@ fun weakestBarsLine(evaluation: RunEvaluation): String? {
     if (bars.isEmpty()) return null
     return (if (bars.size == 1) "Weakest bar: " else "Weakest bars: ") + bars.joinToString(", ")
 }
+
+/**
+ * The level the run is read at, "Up to thirds, five notes, quarter notes.", from its first
+ * bar's configuration; null for content that was not generated.
+ */
+fun levelLine(context: RunContext): String? =
+    (context.segments.first().origin as? SegmentOrigin.Generated)?.let { MusicalLevel.of(it.config).description }
+
+/**
+ * One line per bar the controller moved the level at, "Harder from bar 13: up to fourths",
+ * read off the configurations the bars were generated from, so each points at a bar on the
+ * page.
+ */
+fun levelChangeLines(segments: List<Segment>): List<String> {
+    val levels = segments.map { (it.origin as? SegmentOrigin.Generated)?.let { origin -> MusicalLevel.of(origin.config) } }
+    return levels.zipWithNext().mapIndexedNotNull { index, (before, after) ->
+        if (before == null || after == null) return@mapIndexedNotNull null
+        val changed = MUSICAL_DIMENSIONS.filter { before.rank(it) != after.rank(it) }
+        if (changed.isEmpty()) return@mapIndexedNotNull null
+        val harder = after.rank(changed.first()) > before.rank(changed.first())
+        "${directionWord(harder)} from bar ${index + 2}: " + changed.joinToString(", ") { after.label(it) }
+    }
+}
+
+/** "Harder next run: 3 beats ahead", or null when the controller held. */
+fun nextRunLine(decision: Decision): String? {
+    val move = decision.move ?: return null
+    val what = when (move.dimension) {
+        Dimension.LOOKAHEAD -> lookaheadLabel(decision.position.runConfig.lookaheadBeats)
+        else -> decision.position.state.level.label(move.dimension)
+    }
+    return "${directionWord(move.direction == Direction.UP)} next run: $what"
+}
+
+/** "3 beats ahead", "1 beat ahead". */
+fun lookaheadLabel(beats: Double): String = "${beats.beatsLabel()} ${if (beats == 1.0) "beat" else "beats"} ahead"
+
+private fun directionWord(harder: Boolean): String = if (harder) "Harder" else "Easier"
+
+private val MUSICAL_DIMENSIONS = Dimension.entries.filter { it.movesWithinRun }
 
 fun Double.beatsLabel(): String = if (this == this.toInt().toDouble()) this.toInt().toString() else this.toString()
 

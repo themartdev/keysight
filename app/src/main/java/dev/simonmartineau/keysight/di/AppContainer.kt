@@ -4,10 +4,14 @@ import android.content.Context
 import dev.simonmartineau.keysight.audio.AudioTrackMetronome
 import dev.simonmartineau.keysight.audio.Metronome
 import dev.simonmartineau.keysight.data.KeySightDatabase
+import dev.simonmartineau.keysight.data.RoomDifficultyStore
 import dev.simonmartineau.keysight.data.RoomRunHistory
+import dev.simonmartineau.keysight.difficulty.DifficultyStore
+import dev.simonmartineau.keysight.difficulty.DifficultyTracker
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
 import dev.simonmartineau.keysight.run.RunController
 import dev.simonmartineau.keysight.run.RunHistory
+import dev.simonmartineau.keysight.run.RunState
 import dev.simonmartineau.keysight.settings.ContentSettings
 import dev.simonmartineau.keysight.settings.RunSettings
 import dev.simonmartineau.keysight.settings.SharedPreferencesContentSettings
@@ -39,6 +43,8 @@ class AppContainer(context: Context) {
 
     val runHistory: RunHistory by lazy { RoomRunHistory(database) }
 
+    val difficultyStore: DifficultyStore by lazy { RoomDifficultyStore(database) }
+
     val midiDeviceManager: MidiDeviceManager by lazy { MidiDeviceManager(appContext, clock) }
 
     val metronome: Metronome by lazy { AudioTrackMetronome(appContext, clock) }
@@ -50,6 +56,9 @@ class AppContainer(context: Context) {
     val themeSettings: ThemeSettings by lazy { SharedPreferencesThemeSettings(appContext) }
 
     /** One controller per practice screen; [scope] is the screen's main-thread scope. */
-    fun runController(scope: CoroutineScope): RunController =
-        RunController(scope, appScope, clock, metronome, runHistory)
+    fun runController(scope: CoroutineScope, onRunEnded: (RunState) -> Unit): RunController =
+        RunController(scope, appScope, clock, metronome, runHistory, onRunEnded = onRunEnded)
+
+    /** One tracker per practice screen: the difficulty controller's state and evidence, saved through [appScope]. */
+    fun difficultyTracker(): DifficultyTracker = DifficultyTracker(difficultyStore, appScope)
 }

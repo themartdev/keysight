@@ -265,7 +265,7 @@ class IncrementalEvaluatorTest {
     fun `both hands are committed together, each outcome naming its staff`() {
         // A generated hands-together run in C: the melody on one staff, a held triad tone on the other.
         val config = ExerciseConfig.DEFAULT.copy(hands = Hands.BOTH, accompaniment = Accompaniment.HELD_NOTE)
-        val context = RunContext(GeneratedSegmentSource(runSeed = 11L, config).next(3, firstIndex = 1), Fixtures.slowConfig.copy(segmentCount = 3), seed = 11L)
+        val context = RunContext(GeneratedSegmentSource(runSeed = 11L, config).next(3, firstIndex = 1, committed = emptyList()), Fixtures.slowConfig.copy(segmentCount = 3), seed = 11L)
         val notes = context.score.notes.map { it.pitch to context.timeline.beatsOf(it.onset) }
         val leftLate = notes.map { (pitch, beat) -> pitch to if (pitch < Pitch(60)) beat + 0.15 else beat }
 

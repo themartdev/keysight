@@ -20,15 +20,23 @@ sealed interface RunState {
 
     val context: RunContext
 
+    /** The segments committed so far; nothing before the first commit. */
+    val evaluation: RunEvaluation
+
+    /** The performed segments with their judgements, in order: what a segment source or the difficulty controller reads. */
+    val committed: List<CommittedSegment>
+        get() = context.segments.zip(evaluation.segments, ::CommittedSegment)
+
     /** A run is built and the player has not started. */
-    data class Ready(override val context: RunContext) : RunState
+    data class Ready(override val context: RunContext) : RunState {
+        override val evaluation: RunEvaluation get() = RunEvaluation.EMPTY
+    }
 
     /** The clock is running: the count-in, the performance and the capture tail. */
     sealed interface Running : RunState {
         val startedAtNanos: Long
         val captured: List<MidiEvent>
         val stopAfter: Int?
-        val evaluation: RunEvaluation
 
         val lastSegment: Int get() = stopAfter ?: context.lastSegment
     }
@@ -56,7 +64,7 @@ sealed interface RunState {
         val startedAtNanos: Long,
         val captured: List<MidiEvent>,
         val lastSegment: Int,
-        val evaluation: RunEvaluation,
+        override val evaluation: RunEvaluation,
     ) : RunState {
         /** The run as it was performed: cut after [lastSegment]. */
         val performed: RunContext.Performed get() = context.performed(lastSegment)
@@ -73,7 +81,7 @@ sealed interface RunState {
         val startedAtNanos: Long?,
         val captured: List<MidiEvent>,
         val lastSegment: Int?,
-        val evaluation: RunEvaluation,
+        override val evaluation: RunEvaluation,
     ) : RunState
 
     val isTerminal: Boolean get() = this is Summary || this is Aborted

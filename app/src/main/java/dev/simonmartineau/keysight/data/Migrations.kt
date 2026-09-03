@@ -137,4 +137,14 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
-val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+/** Version 5: the difficulty controller keeps its state, one row of JSON, beside the history it decides from. */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `difficulty_state` (`id` INTEGER NOT NULL, `stateJson` TEXT NOT NULL, " +
+                "`updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        )
+    }
+}
+
+val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)

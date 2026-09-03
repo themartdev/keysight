@@ -1,6 +1,15 @@
 package dev.simonmartineau.keysight.ui.practice
 
 import dev.simonmartineau.keysight.Fixtures
+import dev.simonmartineau.keysight.difficulty.Decision
+import dev.simonmartineau.keysight.difficulty.DifficultyState
+import dev.simonmartineau.keysight.difficulty.Dimension
+import dev.simonmartineau.keysight.difficulty.Direction
+import dev.simonmartineau.keysight.difficulty.Ladders
+import dev.simonmartineau.keysight.difficulty.Move
+import dev.simonmartineau.keysight.difficulty.MusicalLevel
+import dev.simonmartineau.keysight.difficulty.Position
+import dev.simonmartineau.keysight.exercise.ExerciseConfig
 import dev.simonmartineau.keysight.evaluation.Continuity
 import dev.simonmartineau.keysight.evaluation.NoteOutcome
 import dev.simonmartineau.keysight.evaluation.NoteTiming
@@ -11,7 +20,10 @@ import dev.simonmartineau.keysight.evaluation.RhythmResult
 import dev.simonmartineau.keysight.evaluation.RunEvaluation
 import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.evaluation.TimingJudgement
+import dev.simonmartineau.keysight.run.RunConfig
+import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.VisibilityMode
+import dev.simonmartineau.keysight.run.generatedSegment
 import dev.simonmartineau.keysight.score.Clef
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
@@ -116,5 +128,40 @@ class ResultTextTest {
         assertEquals("Weakest bars: 1, 3", weakestBarsLine(RunEvaluation(listOf(flawed, clean, flawed), 0.0)))
         assertNull(weakestBarsLine(RunEvaluation(listOf(clean, clean), 0.0)))
         assertNull(weakestBarsLine(RunEvaluation(listOf(flawed), 0.0)))
+    }
+
+    @Test
+    fun `the level line reads the first bar's configuration, and bundled content has none`() {
+        val generated = RunContext(listOf(generatedSegment(1L, 1, ExerciseConfig.DEFAULT)), RunConfig.DEFAULT.copy(segmentCount = 1), seed = 1L)
+
+        assertEquals("Up to thirds, five notes, quarter notes.", levelLine(generated))
+        assertNull(levelLine(Fixtures.slowRun))
+    }
+
+    @Test
+    fun `a level change is named at the bar it reached, harder or easier`() {
+        val thirds = ExerciseConfig.DEFAULT
+        val fourths = thirds.copy(maxInterval = 3)
+        val halves = fourths.copy(noteValues = Ladders.RHYTHM.easiest)
+        val segments = listOf(thirds, thirds, fourths, fourths, halves, halves, fourths).mapIndexed { index, config -> generatedSegment(1L, index + 1, config) }
+
+        assertEquals(
+            listOf("Harder from bar 3: up to fourths", "Easier from bar 5: half notes", "Harder from bar 7: quarter notes"),
+            levelChangeLines(segments),
+        )
+        assertEquals(emptyList(), levelChangeLines(segments.take(2)))
+        assertEquals(emptyList(), levelChangeLines(Fixtures.slowRun.segments + segments.take(1)))
+    }
+
+    @Test
+    fun `the next run's move is named, the lookahead in beats and the music by its rung`() {
+        val config = RunConfig.DEFAULT.copy(lookaheadBeats = 1.0)
+        val lookahead = Decision(Position(config, DifficultyState(lastMoved = Dimension.LOOKAHEAD)), Move(Dimension.LOOKAHEAD, Direction.UP))
+        val range = Decision(Position(config, DifficultyState(MusicalLevel.DEFAULT.copy(rightHandRange = Ladders.RANGE.rungs[1].right, leftHandRange = Ladders.RANGE.rungs[1].left), Dimension.RANGE)), Move(Dimension.RANGE, Direction.DOWN))
+
+        assertEquals("Harder next run: 1 beat ahead", nextRunLine(lookahead))
+        assertEquals("Easier next run: a sixth", nextRunLine(range))
+        assertNull(nextRunLine(Decision(lookahead.position, null)))
+        assertEquals("0.75 beats ahead", lookaheadLabel(0.75))
     }
 }

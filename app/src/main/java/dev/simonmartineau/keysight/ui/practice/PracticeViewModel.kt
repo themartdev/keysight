@@ -6,12 +6,15 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.simonmartineau.keysight.di.AppContainer
+import dev.simonmartineau.keysight.difficulty.AdaptiveSegmentSource
+import dev.simonmartineau.keysight.difficulty.Decision
+import dev.simonmartineau.keysight.difficulty.DifficultyTracker
+import dev.simonmartineau.keysight.difficulty.evidenceOf
 import dev.simonmartineau.keysight.exercise.Accompaniment
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.midi.MidiDeviceManager
 import dev.simonmartineau.keysight.run.AbortReason
-import dev.simonmartineau.keysight.run.GeneratedSegmentSource
 import dev.simonmartineau.keysight.run.MetronomeMode
 import dev.simonmartineau.keysight.run.RunConfig
 import dev.simonmartineau.keysight.run.RunContext
@@ -26,7 +29,9 @@ import dev.simonmartineau.keysight.settings.RunSettings
 import dev.simonmartineau.keysight.settings.ThemeMode
 import dev.simonmartineau.keysight.settings.ThemeSettings
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
@@ -35,22 +40,26 @@ import kotlin.random.Random
  * app leaving the foreground aborts a running run, and settings changes rebuild the run that
  * is waiting to start.
  *
- * A run's content is generated: a run seed drawn when the run is built and the content
- * settings' [dev.simonmartineau.keysight.exercise.ExerciseConfig] determine every segment,
- * so trying the same run again regenerates the same measures and a settings change while the
- * run is waiting regenerates them under the new configuration. An open-ended run keeps
- * drawing from the same source as it goes.
+ * A run's content is generated: a run seed drawn when the run is built, the content settings'
+ * [dev.simonmartineau.keysight.exercise.ExerciseConfig] and the difficulty controller's level
+ * determine every segment, so trying the same run again regenerates the same measures and a
+ * settings change while the run is waiting regenerates them under the new configuration. An
+ * open-ended run keeps drawing from the same source as it goes, and that source lets the
+ * controller move the level for the bars still to come. When a run ends the controller
+ * decides for the next one; a lookahead it moves is written into the run settings, so the
+ * player sees the chip move, and [nextRun] carries the decision for the summary.
  */
 class PracticeViewModel(
     private val midi: MidiDeviceManager,
     private val settings: RunSettings,
     private val contentSettings: ContentSettings,
     private val themeSettings: ThemeSettings,
-    controllerFactory: (CoroutineScope) -> RunController,
+    private val difficulty: DifficultyTracker,
+    controllerFactory: (CoroutineScope, onRunEnded: (RunState) -> Unit) -> RunController,
     private val random: Random = Random.Default,
 ) : ViewModel() {
 
-    private val controller = controllerFactory(viewModelScope)
+    private val controller = controllerFactory(viewModelScope, ::onRunEnded)
 
     val state: StateFlow<RunState?> = controller.state
     val connection: StateFlow<MidiConnection> = midi.connection
@@ -58,11 +67,19 @@ class PracticeViewModel(
     val content: StateFlow<ContentConfig> = contentSettings.config
     val theme: StateFlow<ThemeMode> = themeSettings.mode
 
+    private val _nextRun = MutableStateFlow<Decision?>(null)
+
+    /** What the controller decided when the last run ended, until the next run is built. */
+    val nextRun: StateFlow<Decision?> = _nextRun.asStateFlow()
+
     /** The seed of the waiting or running run, from which every segment derives. */
     private var runSeed: Long = random.nextLong()
 
     init {
-        load()
+        viewModelScope.launch {
+            difficulty.restore()
+            load()
+        }
         viewModelScope.launch { midi.events.collect(controller::onMidi) }
         viewModelScope.launch {
             midi.connection.collect { connection ->
@@ -128,15 +145,23 @@ class PracticeViewModel(
         if (state.value is RunState.Ready) load()
     }
 
-    private fun initialSegmentCount(): Int =
-        settings.config.value.segmentCount ?: (SegmentSource.SEGMENTS_AHEAD + SegmentSource.SEGMENT_BATCH)
-
-    /** Generates the run's first segments from the current settings and hands it to the controller. */
+    /** Generates the run's first segments from the current settings and level and hands it to the controller. */
     private fun load() {
         val config = settings.config.value
-        val source = GeneratedSegmentSource(runSeed, contentSettings.config.value.exerciseConfig)
-        val segments = source.next(initialSegmentCount(), firstIndex = 1)
+        val source = AdaptiveSegmentSource(runSeed, contentSettings.config.value.exerciseConfig, config, difficulty)
+        val segments = source.initial(config.segmentCount ?: SegmentSource.SEGMENTS_AHEAD)
+        _nextRun.value = null
         controller.load(RunContext(segments, config, runSeed), source.takeIf { config.isOpenEnded })
+    }
+
+    /** A run ended: its commits are evidence, and the controller decides for the next run. */
+    private fun onRunEnded(state: RunState) {
+        val runConfig = state.context.config
+        val evidence = state.committed.map { evidenceOf(runConfig, it.segment, it.result) }
+        val decision = difficulty.runEnded(runConfig, contentSettings.config.value.exerciseConfig, evidence)
+        val moved = decision.position.runConfig
+        if (moved.lookaheadBeats != runConfig.lookaheadBeats) settings.update(settings.config.value.copy(lookaheadBeats = moved.lookaheadBeats))
+        _nextRun.value = decision.takeIf { it.moved }
     }
 
     override fun onCleared() {
@@ -151,6 +176,7 @@ class PracticeViewModel(
                     settings = container.runSettings,
                     contentSettings = container.contentSettings,
                     themeSettings = container.themeSettings,
+                    difficulty = container.difficultyTracker(),
                     controllerFactory = container::runController,
                 )
             }
