@@ -71,4 +71,32 @@ class RunScoreTest {
         assertFailsWith<IllegalArgumentException> { context.performed(0) }
         assertFailsWith<IllegalArgumentException> { context.performed(3) }
     }
+
+    @Test
+    fun `a measure of a score stands on its own, its prefix stripped, its onsets from zero`() {
+        val score = runScore(listOf(Fixtures.cdef, Fixtures.gfed))
+
+        assertEquals(Fixtures.cdef, score.measureAsScore(1, idPrefix = "1:"))
+        assertEquals(Fixtures.gfed, score.measureAsScore(2, idPrefix = "2:"))
+        assertEquals(listOf("2:n1", "2:n2", "2:n3", "2:n4"), score.measureAsScore(2).notes.map { it.id })
+        assertEquals(Fixtures.oneMeasure(), score.measureAsScore(0))
+        assertEquals(Fixtures.cdef, Fixtures.cdef.measureAsScore(0))
+        assertFailsWith<IllegalArgumentException> { score.measureAsScore(3) }
+    }
+
+    @Test
+    fun `an open-ended context grows as it is extended and keeps its config`() {
+        val open = RunContext(listOf(Segment("a", Fixtures.cdef)), Fixtures.slowConfig.copy(segmentCount = null))
+        assertEquals(true, open.timeline.openEnded)
+
+        val extended = open.extended(listOf(Segment("b", Fixtures.gfed), Segment("c", Fixtures.cdef)))
+
+        assertEquals(3, extended.lastSegment)
+        assertEquals(4, extended.timeline.segmentCount)
+        assertEquals(4, extended.score.measureCount)
+        assertEquals(listOf("a", "b", "c"), extended.segments.map { it.exerciseId })
+        assertSame(open, open.extended(emptyList()))
+        assertEquals(listOf(Segment("a", Fixtures.cdef), Segment("b", Fixtures.gfed)), extended.performed(2).segments)
+        assertFailsWith<IllegalArgumentException> { RunContext(listOf(Segment("a", Fixtures.cdef)), Fixtures.slowConfig.copy(segmentCount = 2)) }
+    }
 }

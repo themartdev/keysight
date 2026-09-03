@@ -43,18 +43,19 @@ class RoomRunHistoryTest {
         notes = listOf(ScoreNote("n1", SpelledPitch(Step.C, octave = 4), Ticks.ZERO, Ticks.WHOLE)),
     )
 
-    private val run = RunContext(listOf(Segment("exercise-1", measure)), RunConfig.DEFAULT.copy(segmentCount = 1))
+    private val segments = listOf(Segment("exercise-1", measure), Segment("exercise-2", measure))
+
+    private val run = RunContext(segments, RunConfig.DEFAULT.copy(segmentCount = 2))
 
     private fun record(id: String, sessionId: String, status: RunStatus = RunStatus.COMPLETED, reason: AbortReason? = null) = RunRecord(
         id = id,
         sessionId = sessionId,
-        exerciseIds = listOf("exercise-1"),
         startedAtEpochMillis = 5,
         startedAtNanos = 10_000_000_000,
         status = status,
         abortReason = reason,
         config = run.config,
-        score = run.score,
+        segments = segments,
         events = listOf(MidiEvent.noteOn(14_000_000_000, Pitch.C4, 90), MidiEvent.noteOff(15_000_000_000, Pitch.C4)),
     )
 
@@ -83,29 +84,34 @@ class RoomRunHistoryTest {
     }
 
     @Test
-    fun aCompletedRunIsStoredWithItsEvaluation() = runTest {
+    fun aCompletedRunIsStoredWithAnEvaluationPerSegment() = runTest {
         val session = history.startSession()
         val record = record("run-1", session)
-        val evaluation = PerformanceEvaluator.evaluate(record.score, record.events, run.timeline, record.startedAtNanos)
+        val evaluation = PerformanceEvaluator.evaluate(record.score, run.timeline, record.startedAtNanos, record.events)
 
-        history.record(record, evaluation)
+        history.record(record, evaluation.segments)
 
-        val dao = database.attemptDao()
-        assertEquals(record, dao.byId("run-1")!!.toRecord(dao.midiEventsFor("run-1")))
-        assertEquals(evaluation, dao.latestEvaluationFor("run-1")!!.toResult())
+        val dao = database.runDao()
+        assertEquals(record, dao.byId("run-1")!!.toRecord(dao.segmentsFor("run-1"), dao.midiEventsFor("run-1")))
+        assertEquals(evaluation.segments, dao.latestEvaluationsForRun("run-1").map { it.toResult() })
+        assertEquals(evaluation.segments[1], dao.latestEvaluationFor("run-1:2")!!.toResult())
     }
 
     @Test
-    fun anAbortedRunIsStoredWithoutAnEvaluation() = runTest {
+    fun anAbortedRunIsStoredWithTheEvaluationsItGotTo() = runTest {
         val session = history.startSession()
+        val record = record("run-2", session, RunStatus.ABORTED, AbortReason.BACKGROUNDED)
+        val evaluation = PerformanceEvaluator.evaluate(record.score, run.timeline, record.startedAtNanos, record.events)
 
-        history.record(record("run-2", session, RunStatus.ABORTED, AbortReason.BACKGROUNDED), evaluation = null)
+        history.record(record, evaluation.segments.take(1))
 
-        val dao = database.attemptDao()
+        val dao = database.runDao()
         val stored = dao.byId("run-2")
         assertNotNull(stored)
         assertEquals(AbortReason.BACKGROUNDED, stored!!.abortReason)
-        assertNull(dao.latestEvaluationFor("run-2"))
+        assertEquals(2, dao.segmentsFor("run-2").size)
+        assertEquals(1, dao.latestEvaluationsForRun("run-2").size)
+        assertNull(dao.latestEvaluationFor("run-2:2"))
         assertEquals(2, dao.midiEventsFor("run-2").size)
     }
 }

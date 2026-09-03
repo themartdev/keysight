@@ -7,7 +7,7 @@ import dev.simonmartineau.keysight.run.RunHistory
 import dev.simonmartineau.keysight.run.RunRecord
 import java.util.UUID
 
-/** Run history on the attempt tables, one row per run, until schema version 3. */
+/** Run history on the run, segment, MIDI and evaluation tables. */
 class RoomRunHistory(
     private val database: KeySightDatabase,
     private val wallClock: () -> Long = System::currentTimeMillis,
@@ -24,12 +24,14 @@ class RoomRunHistory(
         database.sessionDao().markEnded(sessionId, wallClock())
     }
 
-    override suspend fun record(record: RunRecord, evaluation: EvaluationResult?) {
+    override suspend fun record(record: RunRecord, evaluations: List<EvaluationResult>) {
+        require(evaluations.size <= record.segments.size) { "${evaluations.size} evaluations for ${record.segments.size} segments" }
+        val evaluatedAt = wallClock()
         database.withTransaction {
-            database.attemptDao().insertAttemptWithEvents(record.toEntity(), record.toMidiEventEntities())
-            if (evaluation != null) {
-                database.attemptDao().upsertEvaluation(evaluation.toEntity(record.id, wallClock()))
-            }
+            database.runDao().insertRunWithSegmentsAndEvents(record.toEntity(), record.toSegmentEntities(), record.toMidiEventEntities())
+            database.runDao().upsertEvaluations(
+                evaluations.mapIndexed { index, evaluation -> evaluation.toEntity(segmentId(record.id, index + 1), evaluatedAt) },
+            )
         }
     }
 }

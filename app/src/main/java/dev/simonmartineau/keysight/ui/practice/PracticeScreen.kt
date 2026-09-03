@@ -42,11 +42,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.simonmartineau.keysight.di.AppContainer
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiConnection
+import dev.simonmartineau.keysight.notation.NoteMark
 import dev.simonmartineau.keysight.notation.PageLayout
 import dev.simonmartineau.keysight.notation.noteMarks
 import dev.simonmartineau.keysight.run.AbortReason
 import dev.simonmartineau.keysight.run.MetronomeMode
 import dev.simonmartineau.keysight.run.RunConfig
+import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.RunState
 import dev.simonmartineau.keysight.run.VisibilityMode
 import dev.simonmartineau.keysight.run.runMask
@@ -55,6 +57,7 @@ import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.settings.ContentConfig
 import dev.simonmartineau.keysight.settings.RunChoices
 import dev.simonmartineau.keysight.settings.ThemeMode
+import dev.simonmartineau.keysight.evaluation.RunEvaluation
 import dev.simonmartineau.keysight.ui.notation.RunPage
 import dev.simonmartineau.keysight.ui.notation.RunSummaryPage
 import kotlin.math.floor
@@ -89,6 +92,7 @@ fun PracticeScreen(container: AppContainer) {
             setLookaheadBeats = viewModel::setLookaheadBeats,
             setTempo = viewModel::setTempo,
             setMetronome = viewModel::setMetronome,
+            setSegmentCount = viewModel::setSegmentCount,
             setKey = viewModel::setKey,
             setHands = viewModel::setHands,
             setTheme = viewModel::setTheme,
@@ -105,6 +109,7 @@ class PracticeActions(
     val setLookaheadBeats: (Double) -> Unit,
     val setTempo: (Double) -> Unit,
     val setMetronome: (MetronomeMode) -> Unit,
+    val setSegmentCount: (Int?) -> Unit,
     val setKey: (KeySignature) -> Unit,
     val setHands: (Hands) -> Unit,
     val setTheme: (ThemeMode) -> Unit,
@@ -195,6 +200,16 @@ private fun SettingsRow(config: RunConfig, content: ContentConfig, actions: Prac
                 )
             }
         }
+        Text("Length", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            RunChoices.SEGMENT_COUNTS.forEach { count ->
+                FilterChip(
+                    selected = count == config.segmentCount,
+                    onClick = { actions.setSegmentCount(count) },
+                    label = { Text(count?.let(::barsLabel) ?: "Open") },
+                )
+            }
+        }
         Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             ChoiceMenu(content.keySignature.majorName, KeySignature.ALL, { it.majorName }, actions.setKey)
@@ -269,8 +284,6 @@ private fun <T> ChoiceMenu(current: String, choices: List<T>, label: (T) -> Stri
     }
 }
 
-private fun Double.beatsLabel(): String = if (this == this.toInt().toDouble()) this.toInt().toString() else this.toString()
-
 @Composable
 private fun Stage(state: RunState?, loadError: String?) {
     when (state) {
@@ -292,7 +305,6 @@ private fun Stage(state: RunState?, loadError: String?) {
             )
         }
         is RunState.Running -> RunStage(state)
-        is RunState.Evaluating -> CircularProgressIndicator()
         is RunState.Summary -> SummaryPanel(state)
         is RunState.Aborted -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Run stopped", style = MaterialTheme.typography.headlineSmall)
@@ -304,7 +316,7 @@ private fun Stage(state: RunState?, loadError: String?) {
 
 /** What the run will do, in one line, for the player about to start it. */
 private fun RunConfig.description(): String {
-    val bars = "$segmentCount bars"
+    val bars = segmentCount?.let(::barsLabel) ?: "Until you stop"
     return when (mode) {
         VisibilityMode.FLASH -> "$bars. Each bar shows ${lookaheadBeats.beatsLabel()} ${if (lookaheadBeats == 1.0) "beat" else "beats"} ahead and disappears as you play it."
         VisibilityMode.READ_AHEAD -> "$bars. Every bar stays visible except the one you are playing."
@@ -316,12 +328,14 @@ private fun RunConfig.description(): String {
  * The page during a run. One frame loop reads the frame time, which is on the same
  * `System.nanoTime` base as the run clock, and derives the beat from the timeline; the mask,
  * the cursor, the page turn and the beat dots all follow from that one number, so none of
- * them can drift from the metronome.
+ * them can drift from the metronome. The marks are the committed segments' outcomes; they
+ * appear behind the cursor as each commit lands, and the mask keeps them off a hidden bar.
  */
 @Composable
 private fun RunStage(state: RunState.Running) {
     val context = state.context
     val timeline = context.timeline
+    val marks = rememberMarks(context, state.evaluation)
     var beat by remember(state.startedAtNanos) { mutableDoubleStateOf(0.0) }
     LaunchedEffect(state.startedAtNanos) {
         while (true) {
@@ -344,6 +358,7 @@ private fun RunStage(state: RunState.Running) {
                 mask = mask,
                 focusTicks = ticks,
                 cursorTicks = if (cursorShown) ticks else null,
+                marks = marks,
             )
         }
         Spacer(Modifier.height(16.dp))
@@ -357,21 +372,41 @@ private fun AbortReason.message(): String = when (this) {
     AbortReason.BACKGROUNDED -> "The app went to the background."
 }
 
+/** The marks of [evaluation] on the pages of [context]'s score, rebuilt only when a commit lands. */
+@Composable
+private fun rememberMarks(context: RunContext, evaluation: RunEvaluation): (PageLayout) -> List<NoteMark> {
+    val score = context.score
+    return remember(score, evaluation) {
+        val outcomes = evaluation.pitch.outcomes
+        val rhythm = evaluation.rhythm
+        val marks: (PageLayout) -> List<NoteMark> = { page -> noteMarks(page, score, outcomes, rhythm) }
+        marks
+    }
+}
+
 @Composable
 private fun SummaryPanel(summary: RunState.Summary) {
-    val pitch = summary.evaluation.pitch
+    val evaluation = summary.evaluation
+    val pitch = evaluation.pitch
+    val rhythm = evaluation.rhythm
     val performed = summary.performed
     val marks = remember(summary) {
-        { page: PageLayout -> noteMarks(page, performed.score, pitch.outcomes, summary.evaluation.rhythm) }
+        { page: PageLayout -> noteMarks(page, performed.score, pitch.outcomes, rhythm) }
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
+        Text(
+            summaryHeader(summary.context.config, performed.score, summary.lastSegment),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
         Text(
             "${pitch.correctCount} / ${pitch.expectedCount} notes correct",
             style = MaterialTheme.typography.headlineMedium,
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            scoreLine(pitch, summary.evaluation.rhythm),
+            scoreLine(pitch, rhythm),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -379,7 +414,7 @@ private fun SummaryPanel(summary: RunState.Summary) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             RunSummaryPage(performed.score, Modifier.fillMaxSize(), marks)
         }
-        remarks(pitch, summary.evaluation.rhythm).forEach { remark ->
+        (remarks(pitch, rhythm) + listOfNotNull(weakestBarsLine(evaluation))).forEach { remark ->
             Text(
                 remark,
                 style = MaterialTheme.typography.bodyMedium,
@@ -400,7 +435,7 @@ private fun ActionBar(state: RunState?, connection: MidiConnection, actions: Pra
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         when (state) {
-            null, is RunState.Evaluating -> Unit
+            null -> Unit
             is RunState.Ready -> Button(onClick = actions.start, enabled = connected, modifier = Modifier.weight(1f)) {
                 Text(if (connected) "Start" else "Connect a keyboard to start")
             }

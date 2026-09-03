@@ -10,6 +10,9 @@ interface RunHistory {
 
     suspend fun endSession(sessionId: String)
 
-    /** Stores a run with its raw MIDI, and its evaluation when it has one. */
-    suspend fun record(record: RunRecord, evaluation: EvaluationResult?)
+    /**
+     * Stores a run with its segments and raw MIDI, and the [evaluations] committed for its
+     * segments in order: one per segment for a completed run, fewer for an aborted one.
+     */
+    suspend fun record(record: RunRecord, evaluations: List<EvaluationResult>)
 }

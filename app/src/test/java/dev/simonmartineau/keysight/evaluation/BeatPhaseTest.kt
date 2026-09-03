@@ -33,6 +33,17 @@ class BeatPhaseTest {
     }
 
     @Test
+    fun `a step moves the phase towards the residuals' median, by at most the step`() {
+        assertEquals(0.15, BeatPhase.step(0.1, listOf(0.05, 0.04, 0.06), 0.125), 1e-9)
+        assertEquals(0.225, BeatPhase.step(0.1, listOf(0.4, 0.45, 0.3), 0.125), 1e-9)
+        assertEquals(-0.025, BeatPhase.step(0.1, listOf(-0.4, -0.45), 0.125), 1e-9)
+        assertEquals(0.12, BeatPhase.step(0.1, listOf(0.4, 0.45, 0.3), 0.02), 1e-9)
+        assertEquals(0.1, BeatPhase.step(0.1, listOf(0.7, -0.6), 0.125), 1e-9)
+        assertEquals(0.1, BeatPhase.step(0.1, emptyList(), 0.125), 1e-9)
+        assertEquals(BeatPhase.estimate(listOf(0.3, 0.2)), BeatPhase.step(0.0, listOf(0.3, 0.2), BeatPhase.MAX_PHASE_BEATS), 1e-9)
+    }
+
+    @Test
     fun `only matched notes have a deviation`() {
         val expected = Fixtures.cdef.notes
         val beats = expected.associate { it.id to Fixtures.cdef.timeSignature.beatsOf(it.onset) }
@@ -43,6 +54,7 @@ class BeatPhaseTest {
             NoteOutcome.Missing(expected[2]),
             NoteOutcome.Extra(played(70, 2.5)),
             NoteOutcome.Correct(expected[3], played(65, 3.0)),
+            NoteOutcome.TooLate(expected[2], played(64, 4.5)),
         )
 
         val deviations = BeatPhase.deviations(outcomes, beats)

@@ -26,7 +26,7 @@ object RhythmAnalysis {
             val (note, played) = when (outcome) {
                 is NoteOutcome.Correct -> outcome.expected to outcome.played
                 is NoteOutcome.WrongPitch -> outcome.expected to outcome.played
-                is NoteOutcome.Missing, is NoteOutcome.Extra -> return@mapNotNull null
+                is NoteOutcome.Missing, is NoteOutcome.Extra, is NoteOutcome.TooLate -> return@mapNotNull null
             }
             val expected = expectedBeats.getValue(note.id)
             val error = played.onsetBeat - expected - phaseBeats

@@ -2,6 +2,7 @@ package dev.simonmartineau.keysight.timing
 
 import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToLong
 
@@ -28,8 +29,10 @@ enum class TimelinePhase {
  * the same line, so tick 0 is beat 0 and no offset exists between them. Capture runs for
  * [captureTailBeats] past the last segment so a late final note is not lost.
  *
- * Every offset is computed from its absolute beat position, never accumulated, so a long run
- * cannot drift: beat 400 is exactly `400 * 60 s / bpm` after the start, whatever came before.
+ * An [openEnded] run has no end of its own: [segmentCount] is how many segments are known so
+ * far, the player ends the run, and the metronome, when it plays through, never stops on its
+ * own. Every offset is computed from its absolute beat position, never accumulated, so a long
+ * run cannot drift: beat 400 is exactly `400 * 60 s / bpm` after the start, whatever came before.
  */
 data class RunTimeline(
     val tempoBpm: Double,
@@ -39,6 +42,7 @@ data class RunTimeline(
     /** Whether the metronome keeps clicking through the performance, or stops after the count-in. */
     val metronomeThroughout: Boolean,
     val captureTailBeats: Double = DEFAULT_CAPTURE_TAIL_BEATS,
+    val openEnded: Boolean = false,
 ) {
     init {
         require(tempoBpm > 0.0) { "tempoBpm must be positive" }
@@ -64,7 +68,7 @@ data class RunTimeline(
     /** The start of segment 1: the count-in is over and the first notes are due. */
     val performanceStartBeat: Double get() = segmentStartBeat(1)
 
-    /** The end of the last segment, which is the end of the score. */
+    /** The end of the last known segment, which is the end of the score. */
     val endBeat: Double get() = segmentStartBeat(segmentCount)
 
     val captureEndBeat: Double get() = endBeat + captureTailBeats
@@ -78,12 +82,20 @@ data class RunTimeline(
 
     fun captureEndNanosAfter(segment: Int): Long = nanosAtBeat(captureEndBeatAfter(segment))
 
-    /** The beat from which the metronome is silent. */
-    val clickEndBeat: Double get() = if (metronomeThroughout) endBeat else performanceStartBeat
+    /** The beat from which the metronome is silent; never, for an open-ended run with the click throughout. */
+    val clickEndBeat: Double
+        get() = when {
+            !metronomeThroughout -> performanceStartBeat
+            openEnded -> Double.POSITIVE_INFINITY
+            else -> endBeat
+        }
 
-    /** Beats on which the metronome sounds. */
-    val clickBeats: List<Double>
-        get() = generateSequence(0.0) { it + 1.0 }.takeWhile { it < clickEndBeat }.toList()
+    /** The beats on which the metronome sounds in `[fromBeat, toBeatExclusive)`, as beat indices; empty when none. */
+    fun clicksIn(fromBeat: Double, toBeatExclusive: Double): LongRange {
+        val first = ceil(fromBeat.coerceAtLeast(0.0)).toLong()
+        val last = ceil(minOf(toBeatExclusive, clickEndBeat)).toLong() - 1
+        return first..last
+    }
 
     /** Nanoseconds from the run start to [beat]. */
     fun nanosAtBeat(beat: Double): Long = (beat * NANOS_PER_MINUTE / tempoBpm).roundToLong()
@@ -108,10 +120,10 @@ data class RunTimeline(
         else -> TimelinePhase.ENDED
     }
 
-    /** The same run cut after [segmentCount] segments, count-in included: what a stopped run performed. */
+    /** The same run cut after [segmentCount] segments, count-in included, and closed: what a stopped run performed. */
     fun truncatedTo(segmentCount: Int): RunTimeline {
         require(segmentCount in 2..this.segmentCount) { "cannot truncate ${this.segmentCount} segments to $segmentCount" }
-        return copy(segmentCount = segmentCount)
+        return copy(segmentCount = segmentCount, openEnded = false)
     }
 
     companion object {

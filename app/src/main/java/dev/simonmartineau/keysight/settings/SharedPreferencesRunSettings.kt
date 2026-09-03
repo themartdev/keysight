@@ -24,7 +24,7 @@ class SharedPreferencesRunSettings(private val prefs: SharedPreferences) : RunSe
             putString(KEY_METRONOME, config.metronome.name)
             putString(KEY_MODE, config.mode.name)
             putFloat(KEY_LOOKAHEAD, config.lookaheadBeats.toFloat())
-            putInt(KEY_SEGMENT_COUNT, config.segmentCount)
+            putInt(KEY_SEGMENT_COUNT, config.segmentCount ?: OPEN_ENDED)
         }
         _config.value = config
     }
@@ -37,7 +37,7 @@ class SharedPreferencesRunSettings(private val prefs: SharedPreferences) : RunSe
                 metronome = MetronomeMode.valueOf(prefs.getString(KEY_METRONOME, null) ?: defaults.metronome.name),
                 mode = VisibilityMode.valueOf(prefs.getString(KEY_MODE, null) ?: defaults.mode.name),
                 lookaheadBeats = prefs.getFloat(KEY_LOOKAHEAD, defaults.lookaheadBeats.toFloat()).toDouble(),
-                segmentCount = prefs.getInt(KEY_SEGMENT_COUNT, defaults.segmentCount),
+                segmentCount = prefs.getInt(KEY_SEGMENT_COUNT, defaults.segmentCount ?: OPEN_ENDED).takeIf { it != OPEN_ENDED },
             )
         }.getOrDefault(defaults)
     }
@@ -49,5 +49,8 @@ class SharedPreferencesRunSettings(private val prefs: SharedPreferences) : RunSe
         const val KEY_MODE = "mode"
         const val KEY_LOOKAHEAD = "lookaheadBeats"
         const val KEY_SEGMENT_COUNT = "segmentCount"
+
+        /** How an open-ended run is stored in the integer segment count. */
+        const val OPEN_ENDED = 0
     }
 }

@@ -15,7 +15,6 @@ import dev.simonmartineau.keysight.timing.MonotonicClock
 import dev.simonmartineau.keysight.timing.RunTimeline
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -32,7 +31,8 @@ import kotlin.test.assertTrue
 /**
  * The two-segment run of C4 D4 E4 F4 then G4 F4 E4 D4 at 60 bpm: the metronome anchors 300 ms
  * after start, the count-in is the next four seconds, segment 1 the four after, segment 2 the
- * four after that, and capture ends one second later.
+ * four after that, and capture ends one second later. Segment 1 commits at 9.3 s, segment 2
+ * at 13.3 s.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RunControllerTest {
@@ -63,11 +63,22 @@ class RunControllerTest {
     private class FakeHistory : RunHistory {
         val sessions = mutableListOf<String>()
         val ended = mutableListOf<String>()
-        val records = mutableListOf<Pair<RunRecord, EvaluationResult?>>()
+        val records = mutableListOf<Pair<RunRecord, List<EvaluationResult>>>()
 
         override suspend fun startSession(): String = "session-${sessions.size + 1}".also(sessions::add)
         override suspend fun endSession(sessionId: String) { ended += sessionId }
-        override suspend fun record(record: RunRecord, evaluation: EvaluationResult?) { records += record to evaluation }
+        override suspend fun record(record: RunRecord, evaluations: List<EvaluationResult>) { records += record to evaluations }
+    }
+
+    /** Hands out numbered copies of the same measure and counts how often it was asked. */
+    private class FakeSource : SegmentSource {
+        var calls = 0
+        private var served = 0
+
+        override fun next(count: Int, previous: Segment): List<Segment> {
+            calls++
+            return (1..count).map { Segment("more-${++served}", Fixtures.cdef) }
+        }
     }
 
     private class Rig(scope: TestScope) {
@@ -81,7 +92,6 @@ class RunControllerTest {
             clock = clock,
             metronome = metronome,
             history = history,
-            evaluationDispatcher = StandardTestDispatcher(scope.testScheduler),
             ids = { "run-${++nextId}" },
             wallClock = { WALL_EPOCH + scope.testScheduler.currentTime },
         )
@@ -119,29 +129,34 @@ class RunControllerTest {
         assertIs<CountingIn>(rig.state)
         advanceTimeBy(1)
         runCurrent()
-        assertIs<Performing>(rig.state)
+        assertEquals(0, assertIs<Performing>(rig.state).evaluation.committedCount)
 
-        advanceTimeBy(8999)
+        advanceTimeBy(5000)
+        runCurrent()
+        assertEquals(1, assertIs<Performing>(rig.state).evaluation.committedCount)
+
+        advanceTimeBy(3999)
         runCurrent()
         assertIs<Performing>(rig.state)
         advanceTimeBy(1)
         runCurrent()
         val summary = assertIs<Summary>(rig.state)
+        assertEquals(2, summary.evaluation.committedCount)
         assertEquals(0, summary.evaluation.pitch.correctCount)
         assertEquals(8, summary.evaluation.pitch.expectedCount)
         assertEquals(1, rig.metronome.stops)
 
         advanceUntilIdle()
-        val (record, evaluation) = rig.history.records.single()
+        val (record, evaluations) = rig.history.records.single()
         assertEquals("run-1", record.id)
         assertEquals("session-1", record.sessionId)
-        assertEquals(listOf("segment-1", "segment-2"), record.exerciseIds)
+        assertEquals(listOf("segment-1", "segment-2"), record.segments.map { it.exerciseId })
         assertEquals(RunStatus.COMPLETED, record.status)
         assertEquals(300 * ms, record.startedAtNanos)
         assertEquals(WALL_EPOCH + 300, record.startedAtEpochMillis)
         assertEquals(twoBars.score, record.score)
         assertEquals(twoBars.config, record.config)
-        assertEquals(summary.evaluation, evaluation)
+        assertEquals(summary.evaluation.segments, evaluations)
     }
 
     @Test
@@ -182,7 +197,7 @@ class RunControllerTest {
     }
 
     @Test
-    fun `stopping mid-run wakes the sleeping job, finishes the bar and summarises what was performed`() = runTest {
+    fun `stopping mid-run finishes the bar and summarises what was performed`() = runTest {
         val rig = Rig(this)
         rig.loadDefault()
         rig.controller.start()
@@ -200,7 +215,7 @@ class RunControllerTest {
         runCurrent()
         assertEquals(2, assertIs<Performing>(rig.state).lastSegment)
 
-        // Segment 2 ends 4 s after 12.3 s, capture one second later: the summary is up at 13.3 s, not 17.3 s.
+        // Segment 2 ends 4 s after 12.3 s, capture one second later: the summary is up at 13.3 s.
         advanceTimeBy(4000 + 1000 - 500 - 1)
         runCurrent()
         assertIs<Performing>(rig.state)
@@ -216,7 +231,7 @@ class RunControllerTest {
     }
 
     @Test
-    fun `stopping in the first bar cuts the run after it`() = runTest {
+    fun `stopping in the first bar wakes the sleeping job and cuts the run after it`() = runTest {
         val rig = Rig(this)
         rig.loadDefault()
         rig.controller.start()
@@ -235,10 +250,11 @@ class RunControllerTest {
         assertEquals(2, summary.performed.score.measureCount)
 
         advanceUntilIdle()
-        val record = rig.history.records.single().first
+        val (record, evaluations) = rig.history.records.single()
         assertEquals(RunStatus.COMPLETED, record.status)
         assertEquals(2, record.score.measureCount)
-        assertEquals(listOf("segment-1", "segment-2"), record.exerciseIds)
+        assertEquals(listOf("segment-1"), record.segments.map { it.exerciseId })
+        assertEquals(1, evaluations.size)
     }
 
     @Test
@@ -256,18 +272,19 @@ class RunControllerTest {
 
         advanceUntilIdle()
         assertIs<Aborted>(rig.state)
-        val (record, evaluation) = rig.history.records.single()
+        val (record, evaluations) = rig.history.records.single()
         assertEquals(RunStatus.ABORTED, record.status)
         assertEquals(AbortReason.CANCELLED, record.abortReason)
-        assertNull(evaluation)
+        assertEquals(listOf("segment-1"), record.segments.map { it.exerciseId })
+        assertTrue(evaluations.isEmpty())
     }
 
     @Test
-    fun `a disconnect mid-run aborts, stops the metronome and keeps the raw MIDI`() = runTest {
+    fun `a disconnect mid-run aborts, stops the metronome and keeps the raw MIDI and the commits`() = runTest {
         val rig = Rig(this)
         rig.loadDefault()
         rig.controller.start()
-        advanceTimeBy(300 + 2500)
+        advanceTimeBy(300 + 9500)
         runCurrent()
         val note = MidiEvent.noteOn(rig.clock.nowNanos(), Pitch(60), 90)
         rig.controller.onMidi(note)
@@ -275,16 +292,17 @@ class RunControllerTest {
         rig.controller.abort(AbortReason.MIDI_DISCONNECTED)
         val aborted = assertIs<Aborted>(rig.state)
         assertEquals(AbortReason.MIDI_DISCONNECTED, aborted.reason)
+        assertEquals(2, aborted.lastSegment)
         assertEquals(1, rig.metronome.stops)
 
         advanceUntilIdle()
         assertIs<Aborted>(rig.state)
-        val (record, evaluation) = rig.history.records.single()
+        val (record, evaluations) = rig.history.records.single()
         assertEquals(RunStatus.ABORTED, record.status)
         assertEquals(AbortReason.MIDI_DISCONNECTED, record.abortReason)
         assertEquals(listOf(note), record.events)
         assertEquals(twoBars.score, record.score)
-        assertNull(evaluation)
+        assertEquals(1, evaluations.size)
     }
 
     @Test
@@ -372,6 +390,49 @@ class RunControllerTest {
         val summary = assertIs<Summary>(rig.state)
         rig.controller.onMidi(MidiEvent.noteOn(rig.clock.nowNanos(), Pitch(60), 90))
         assertEquals(summary, rig.state)
+    }
+
+    @Test
+    fun `an open-ended run is topped up ahead of the cursor and ends where the player stops`() = runTest {
+        val rig = Rig(this)
+        val source = FakeSource()
+        val initial = SegmentSource.SEGMENTS_AHEAD + SegmentSource.SEGMENT_BATCH
+        val open = RunContext((1..initial).map { Segment("first-$it", Fixtures.cdef) }, Fixtures.slowConfig.copy(segmentCount = null))
+        assertFailsWith<IllegalArgumentException> { rig.controller.load(open) }
+        rig.controller.load(open, source)
+        rig.controller.start()
+
+        // Segment 8's tail ends at 37 s, when the cursor is in segment 9: only 11 segments remain ahead.
+        advanceTimeBy(300 + 37_000 - 1)
+        runCurrent()
+        assertEquals(initial, rig.state!!.context.segments.size)
+        assertEquals(0, source.calls)
+        advanceTimeBy(1)
+        runCurrent()
+        val extended = assertIs<Performing>(rig.state)
+        assertEquals(initial + SegmentSource.SEGMENT_BATCH, extended.context.segments.size)
+        assertEquals(1, source.calls)
+        assertEquals(8, extended.evaluation.committedCount)
+        assertTrue(rig.metronome.lastTimeline!!.openEnded)
+
+        advanceTimeBy(1000)
+        runCurrent()
+        rig.controller.stop()
+        runCurrent()
+        assertEquals(9, assertIs<Performing>(rig.state).stopAfter)
+
+        advanceTimeBy(3000)
+        runCurrent()
+        val summary = assertIs<Summary>(rig.state)
+        assertEquals(9, summary.lastSegment)
+        assertEquals(9, summary.evaluation.committedCount)
+        assertEquals(1, source.calls)
+
+        advanceUntilIdle()
+        val (record, evaluations) = rig.history.records.single()
+        assertEquals(9, record.segments.size)
+        assertEquals(9, evaluations.size)
+        assertNull(record.config.segmentCount)
     }
 
     private companion object {

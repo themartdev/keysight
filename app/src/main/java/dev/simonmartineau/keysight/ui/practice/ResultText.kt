@@ -3,12 +3,17 @@ package dev.simonmartineau.keysight.ui.practice
 import dev.simonmartineau.keysight.evaluation.Continuity
 import dev.simonmartineau.keysight.evaluation.PitchResult
 import dev.simonmartineau.keysight.evaluation.RhythmResult
+import dev.simonmartineau.keysight.evaluation.RunEvaluation
+import dev.simonmartineau.keysight.run.RunConfig
+import dev.simonmartineau.keysight.run.VisibilityMode
+import dev.simonmartineau.keysight.score.Clef
+import dev.simonmartineau.keysight.score.Score
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * The words of the result screen, kept pure so they can be tested. Feedback stays compact: one
- * score line, then only the remarks that earned their place.
+ * The words of the summary, kept pure so they can be tested. Feedback stays compact: what the
+ * run was, one score line, then only the remarks that earned their place.
  */
 
 /**
@@ -27,6 +32,24 @@ fun continuityLabel(continuity: Continuity): String = when (continuity) {
     Continuity.GOOD -> "Good"
     Continuity.HESITANT -> "Hesitant"
     Continuity.LOST -> "Lost"
+}
+
+/** What the run was: `8 bars   Flash 2 beats   C major   right hand`. */
+fun summaryHeader(config: RunConfig, score: Score, performedSegments: Int): String {
+    val mode = when (config.mode) {
+        VisibilityMode.FLASH -> "Flash ${config.lookaheadBeats.beatsLabel()} ${if (config.lookaheadBeats == 1.0) "beat" else "beats"}"
+        VisibilityMode.READ_AHEAD, VisibilityMode.OPEN_SCORE -> config.mode.label
+    }
+    return listOf(barsLabel(performedSegments), mode, score.keySignature.majorName, handsLabel(score)).joinToString("   ")
+}
+
+fun barsLabel(bars: Int): String = if (bars == 1) "1 bar" else "$bars bars"
+
+/** Which hands the score is for, read from its staves: a single staff is one hand, the grand staff both. */
+fun handsLabel(score: Score): String = when {
+    score.staves.size > 1 -> "both hands"
+    score.staves.single().clef == Clef.BASS -> "left hand"
+    else -> "right hand"
 }
 
 fun scoreLine(pitch: PitchResult, rhythm: RhythmResult?): String {
@@ -55,5 +78,15 @@ fun remarks(pitch: PitchResult, rhythm: RhythmResult?): List<String> {
     if (rhythm.pauses.size > 1) lines += "${rhythm.pauses.size} pauses"
     return lines
 }
+
+/** `Weakest bars: 7, 12`, or null when no bar went wrong; a one-bar run has no bar to single out. */
+fun weakestBarsLine(evaluation: RunEvaluation): String? {
+    if (evaluation.committedCount < 2) return null
+    val bars = evaluation.weakestSegments()
+    if (bars.isEmpty()) return null
+    return (if (bars.size == 1) "Weakest bar: " else "Weakest bars: ") + bars.joinToString(", ")
+}
+
+fun Double.beatsLabel(): String = if (this == this.toInt().toDouble()) this.toInt().toString() else this.toString()
 
 private fun percent(fraction: Double): String = "${(fraction * 100).roundToInt()}%"

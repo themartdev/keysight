@@ -37,8 +37,8 @@ class RhythmEvaluatorTest {
             listOf(MidiEvent.noteOn(onset, pitch, 90), MidiEvent.noteOff(onset + SECOND_NANOS / 4, pitch))
         }
 
-    private fun evaluate(events: List<MidiEvent>): EvaluationResult =
-        PerformanceEvaluator.evaluate(score, events, timeline, startedAtNanos = 0L)
+    private fun evaluate(events: List<MidiEvent>): RunEvaluation =
+        PerformanceEvaluator.evaluate(score, timeline, startedAtNanos = 0L, events = events)
 
     @Test
     fun `right notes at the wrong times score full pitch and no rhythm`() {
@@ -105,7 +105,7 @@ class RhythmEvaluatorTest {
             ),
         )
 
-        val result = PerformanceEvaluator.evaluate(repeated.score, performance(c4 to 0.0, c4 to 1.0, c4 to 3.0), repeated.timeline, 0L)
+        val result = PerformanceEvaluator.evaluate(repeated.score, repeated.timeline, 0L, performance(c4 to 0.0, c4 to 1.0, c4 to 3.0))
 
         assertEquals(listOf("Correct", "Correct", "Missing", "Correct"), result.pitch.outcomes.map { it::class.simpleName })
         assertEquals(1.0, result.rhythm!!.accuracy)
@@ -126,7 +126,7 @@ class RhythmEvaluatorTest {
         val events = performance(c4 to 0.1, g4 to 0.9, e4 to 2.4, f4 to 3.0)
 
         assertEquals(evaluate(events), evaluate(events))
-        assertEquals(3, evaluate(events).evaluatorVersion)
+        assertEquals(4, evaluate(events).segments.single().evaluatorVersion)
         assertTrue(evaluate(events).rhythm != null)
     }
 }

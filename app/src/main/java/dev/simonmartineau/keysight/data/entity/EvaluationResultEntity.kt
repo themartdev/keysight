@@ -4,26 +4,26 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 
 /**
- * A scored attempt, keyed by the evaluator that produced it.
+ * A scored segment, keyed by the evaluator that produced it.
  *
- * The evaluator version is part of the primary key so that re-scoring an old attempt adds a
+ * The evaluator version is part of the primary key so that re-scoring an old segment adds a
  * row rather than replacing the original judgement. [resultJson] is the full per-note detail;
- * the summary columns let trends be queried without deserialising every attempt.
+ * the summary columns let trends be queried without deserialising every segment.
  */
 @Entity(
     tableName = "evaluation_results",
-    primaryKeys = ["attemptId", "evaluatorVersion"],
+    primaryKeys = ["segmentId", "evaluatorVersion"],
     foreignKeys = [
         ForeignKey(
-            entity = AttemptEntity::class,
+            entity = SegmentEntity::class,
             parentColumns = ["id"],
-            childColumns = ["attemptId"],
+            childColumns = ["segmentId"],
             onDelete = ForeignKey.CASCADE,
         ),
     ],
 )
 data class EvaluationResultEntity(
-    val attemptId: String,
+    val segmentId: String,
     val evaluatorVersion: Int,
     val evaluatedAtEpochMillis: Long,
     val pitchAccuracy: Double,

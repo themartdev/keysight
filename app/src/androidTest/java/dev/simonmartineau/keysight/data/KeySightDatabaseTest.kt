@@ -28,41 +28,42 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Smoke test for the practice-history schema, on a device: a run and its raw MIDI go in
- * together and come back unchanged, evaluations are keyed by evaluator version, and deleting a
- * session takes everything recorded in it along.
+ * Smoke test for the practice-history schema, on a device: a run, its segments and its raw
+ * MIDI go in together and come back unchanged, evaluations are keyed by segment and evaluator
+ * version, and deleting a session takes everything recorded in it along.
  */
 @RunWith(AndroidJUnit4::class)
 class KeySightDatabaseTest {
 
     private lateinit var database: KeySightDatabase
 
-    private val measure = Score(
+    private fun measure(id: String, step: Step) = Score(
         timeSignature = TimeSignature.FOUR_FOUR,
         keySignature = KeySignature.C_MAJOR,
         measureCount = 1,
-        notes = listOf(ScoreNote("n1", SpelledPitch(Step.C, octave = 4), Ticks.ZERO, Ticks.WHOLE)),
+        notes = listOf(ScoreNote(id, SpelledPitch(step, octave = 4), Ticks.ZERO, Ticks.WHOLE)),
     )
 
-    private val run = RunContext(listOf(Segment("exercise-1", measure)), RunConfig.DEFAULT.copy(segmentCount = 1))
+    private val segments = listOf(Segment("exercise-1", measure("n1", Step.C)), Segment("exercise-2", measure("n1", Step.D)))
+
+    private val run = RunContext(segments, RunConfig.DEFAULT.copy(segmentCount = 2))
 
     private val record = RunRecord(
         id = "run-1",
         sessionId = "session-1",
-        exerciseIds = listOf("exercise-1"),
         startedAtEpochMillis = 1_700_000_000_000,
         startedAtNanos = 10_000_000_000,
         status = RunStatus.COMPLETED,
         abortReason = null,
         config = run.config,
-        score = run.score,
+        segments = segments,
         events = listOf(
             MidiEvent.noteOn(14_000_000_000, Pitch.C4, 90),
             MidiEvent.noteOff(15_000_000_000, Pitch.C4),
         ),
     )
 
-    private fun evaluate() = PerformanceEvaluator.evaluate(record.score, record.events, run.timeline, record.startedAtNanos)
+    private fun evaluate() = PerformanceEvaluator.evaluate(record.score, run.timeline, record.startedAtNanos, record.events)
 
     @Before
     fun createDatabase() = runTest {
@@ -77,39 +78,44 @@ class KeySightDatabaseTest {
     }
 
     @Test
-    fun aRunComesBackWithItsRawMidi() = runTest {
-        val dao = database.attemptDao()
+    fun aRunComesBackWithItsSegmentsAndRawMidi() = runTest {
+        val dao = database.runDao()
 
-        dao.insertAttemptWithEvents(record.toEntity(), record.toMidiEventEntities())
+        dao.insertRunWithSegmentsAndEvents(record.toEntity(), record.toSegmentEntities(), record.toMidiEventEntities())
 
-        val stored = dao.byId("run-1")!!.toRecord(dao.midiEventsFor("run-1"))
+        val stored = dao.byId("run-1")!!.toRecord(dao.segmentsFor("run-1"), dao.midiEventsFor("run-1"))
         assertEquals(record, stored)
     }
 
     @Test
-    fun evaluationsAreKeyedByEvaluatorVersion() = runTest {
-        val dao = database.attemptDao()
-        dao.insertAttemptWithEvents(record.toEntity(), record.toMidiEventEntities())
+    fun evaluationsAreKeyedBySegmentAndEvaluatorVersion() = runTest {
+        val dao = database.runDao()
+        dao.insertRunWithSegmentsAndEvents(record.toEntity(), record.toSegmentEntities(), record.toMidiEventEntities())
         val evaluation = evaluate()
+        val first = evaluation.segments[0]
+        val second = evaluation.segments[1]
 
-        dao.upsertEvaluation(evaluation.toEntity("run-1", evaluatedAtEpochMillis = 1))
-        dao.upsertEvaluation(evaluation.copy(evaluatorVersion = evaluation.evaluatorVersion + 1).toEntity("run-1", evaluatedAtEpochMillis = 2))
+        dao.upsertEvaluations(listOf(first.toEntity("run-1:1", 1), second.toEntity("run-1:2", 1)))
+        dao.upsertEvaluations(listOf(first.copy(evaluatorVersion = first.evaluatorVersion + 1).toEntity("run-1:1", 2)))
 
-        assertEquals(2, dao.evaluationsFor("run-1").size)
-        assertEquals(evaluation.evaluatorVersion + 1, dao.latestEvaluationFor("run-1")!!.evaluatorVersion)
-        assertEquals(evaluation, dao.evaluationsFor("run-1").first().toResult())
+        assertEquals(2, dao.evaluationsFor("run-1:1").size)
+        assertEquals(first.evaluatorVersion + 1, dao.latestEvaluationFor("run-1:1")!!.evaluatorVersion)
+        assertEquals(first, dao.evaluationsFor("run-1:1").first().toResult())
+        assertEquals(listOf(first.evaluatorVersion + 1, second.evaluatorVersion), dao.latestEvaluationsForRun("run-1").map { it.evaluatorVersion })
+        assertEquals(second, dao.latestEvaluationsForRun("run-1")[1].toResult())
     }
 
     @Test
     fun deletingASessionCascades() = runTest {
-        val dao = database.attemptDao()
-        dao.insertAttemptWithEvents(record.toEntity(), record.toMidiEventEntities())
-        dao.upsertEvaluation(evaluate().toEntity("run-1", evaluatedAtEpochMillis = 1))
+        val dao = database.runDao()
+        dao.insertRunWithSegmentsAndEvents(record.toEntity(), record.toSegmentEntities(), record.toMidiEventEntities())
+        dao.upsertEvaluations(listOf(evaluate().segments[0].toEntity("run-1:1", 1)))
 
         database.sessionDao().delete("session-1")
 
         assertNull(dao.byId("run-1"))
+        assertEquals(emptyList<Any>(), dao.segmentsFor("run-1"))
         assertEquals(emptyList<Any>(), dao.midiEventsFor("run-1"))
-        assertEquals(emptyList<Any>(), dao.evaluationsFor("run-1"))
+        assertEquals(emptyList<Any>(), dao.evaluationsFor("run-1:1"))
     }
 }

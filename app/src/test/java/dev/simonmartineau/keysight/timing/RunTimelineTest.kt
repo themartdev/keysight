@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class RunTimelineTest {
 
@@ -106,7 +107,7 @@ class RunTimelineTest {
 
     @Test
     fun `the metronome stops at the performance by default`() {
-        assertEquals(listOf(0.0, 1.0, 2.0, 3.0), timeline().clickBeats)
+        assertEquals(0L..3L, timeline().clicksIn(0.0, 100.0))
         assertEquals(4.0, timeline().clickEndBeat)
     }
 
@@ -114,8 +115,32 @@ class RunTimelineTest {
     fun `the metronome can be left running through the run`() {
         val throughout = timeline(metronomeThroughout = true)
 
-        assertEquals((0..11).map { it.toDouble() }, throughout.clickBeats)
+        assertEquals(0L..11L, throughout.clicksIn(0.0, 100.0))
         assertEquals(throughout.endBeat, throughout.clickEndBeat)
+    }
+
+    @Test
+    fun `clicks in a window are the whole beats it covers, none before the start`() {
+        val throughout = timeline(metronomeThroughout = true)
+
+        assertEquals(3L..5L, throughout.clicksIn(2.5, 5.5))
+        assertEquals(3L..5L, throughout.clicksIn(3.0, 5.001))
+        assertEquals(3L..4L, throughout.clicksIn(3.0, 5.0))
+        assertEquals(0L..1L, throughout.clicksIn(-3.0, 1.5))
+        assertTrue(throughout.clicksIn(2.5, 2.7).isEmpty())
+        assertTrue(throughout.clicksIn(12.0, 20.0).isEmpty())
+    }
+
+    @Test
+    fun `an open-ended run's click never ends, but its known segments still do`() {
+        val open = timeline(metronomeThroughout = true).copy(openEnded = true)
+
+        assertEquals(Double.POSITIVE_INFINITY, open.clickEndBeat)
+        assertEquals(1000L..1003L, open.clicksIn(1000.0, 1004.0))
+        assertEquals(12.0, open.endBeat)
+        assertEquals(2, open.segmentAt(100.0))
+        assertEquals(4.0, open.copy(metronomeThroughout = false).clickEndBeat)
+        assertEquals(false, open.truncatedTo(2).openEnded)
     }
 
     @Test

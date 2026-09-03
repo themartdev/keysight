@@ -8,8 +8,15 @@ import dev.simonmartineau.keysight.evaluation.Pause
 import dev.simonmartineau.keysight.evaluation.PitchResult
 import dev.simonmartineau.keysight.evaluation.PlayedNote
 import dev.simonmartineau.keysight.evaluation.RhythmResult
+import dev.simonmartineau.keysight.evaluation.RunEvaluation
+import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.evaluation.TimingJudgement
+import dev.simonmartineau.keysight.run.VisibilityMode
+import dev.simonmartineau.keysight.score.Clef
+import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.score.Pitch
+import dev.simonmartineau.keysight.score.Staff
+import kotlin.test.assertNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -87,5 +94,27 @@ class ResultTextTest {
     @Test
     fun `continuity labels`() {
         assertEquals(listOf("Good", "Hesitant", "Lost"), Continuity.entries.map(::continuityLabel))
+    }
+
+    @Test
+    fun `the header says what the run was`() {
+        val config = Fixtures.slowConfig
+        val score = Fixtures.cdef
+
+        assertEquals("8 bars   Flash 2 beats   C major   right hand", summaryHeader(config, score, 8))
+        assertEquals("1 bar   Flash 1 beat   G major   left hand", summaryHeader(config.copy(lookaheadBeats = 1.0), score.copy(keySignature = KeySignature(1), staves = listOf(Staff(Clef.BASS))), 1))
+        assertEquals("3 bars   Read ahead   C major   both hands", summaryHeader(config.copy(mode = VisibilityMode.READ_AHEAD), score.copy(staves = listOf(Staff(Clef.TREBLE), Staff(Clef.BASS))), 3))
+        assertEquals("12 bars   Open score   C major   right hand", summaryHeader(config.copy(mode = VisibilityMode.OPEN_SCORE, segmentCount = null), score, 12))
+    }
+
+    @Test
+    fun `the weakest bars are named once there is more than one bar and one went wrong`() {
+        val clean = EvaluationResult(4, PitchResult(listOf(NoteOutcome.Correct(Fixtures.cdef.notes[0], played(60, 0.0)))), rhythm(timings = listOf(timing(TimingJudgement.ON_TIME))))
+        val flawed = EvaluationResult(4, pitch, rhythm())
+
+        assertEquals("Weakest bar: 2", weakestBarsLine(RunEvaluation(listOf(clean, flawed, clean), 0.0)))
+        assertEquals("Weakest bars: 1, 3", weakestBarsLine(RunEvaluation(listOf(flawed, clean, flawed), 0.0)))
+        assertNull(weakestBarsLine(RunEvaluation(listOf(clean, clean), 0.0)))
+        assertNull(weakestBarsLine(RunEvaluation(listOf(flawed), 0.0)))
     }
 }

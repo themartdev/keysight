@@ -16,6 +16,7 @@ import dev.simonmartineau.keysight.evaluation.PerformanceEvaluator
 import dev.simonmartineau.keysight.evaluation.PitchResult
 import dev.simonmartineau.keysight.evaluation.PlayedNote
 import dev.simonmartineau.keysight.evaluation.RhythmAnalysis
+import dev.simonmartineau.keysight.evaluation.RunEvaluation
 import dev.simonmartineau.keysight.exercise.Hands
 import dev.simonmartineau.keysight.midi.MidiConnection
 import dev.simonmartineau.keysight.notation.Mask
@@ -138,7 +139,7 @@ private object PreviewData {
             Segment("g3", grandStaffMeasure(0, Step.G, Step.A, Step.B, Step.C)),
             Segment("g4", grandStaffMeasure(1, Step.C, Step.B, Step.A, Step.G)),
         ),
-        config = config,
+        config = config.copy(segmentCount = 4),
     )
 
     val connection: MidiConnection = MidiConnection.Connected("Preview keyboard")
@@ -149,40 +150,52 @@ private object PreviewData {
     /** The first performed bar of [run]: one of each outcome, correct, wrong (F sharp for D), missing, an extra A between beats, correct. */
     private val firstBar = run.score.notes.take(4)
 
-    val outcomes: List<NoteOutcome> = listOf(
+    private val firstBarOutcomes: List<NoteOutcome> = listOf(
         NoteOutcome.Correct(firstBar[0], played(60, 4.02)),
         NoteOutcome.WrongPitch(firstBar[1], played(66, 4.8)),
         NoteOutcome.Missing(firstBar[2]),
         NoteOutcome.Extra(played(69, 6.6)),
         NoteOutcome.Correct(firstBar[3], played(65, 7.7)),
-    ) + run.score.notes.drop(4).map { NoteOutcome.Correct(it, played(it.pitch.midiNoteNumber, run.timeline.beatsOf(it.onset) + 0.05)) }
+    )
 
     private val expectedBeats = run.score.notes.associate { it.id to run.timeline.beatsOf(it.onset) }
 
-    /** The rhythm judgement of [outcomes]: one early, one late, one pause. */
-    val rhythm = RhythmAnalysis.analyse(outcomes, expectedBeats, BeatPhase.estimate(BeatPhase.deviations(outcomes, expectedBeats)))
+    /** One committed result per bar: the first with one of each outcome, the rest played a touch late. */
+    private fun segmentResult(segment: Int): EvaluationResult {
+        val outcomes = if (segment == 1) firstBarOutcomes else run.score.notesInMeasure(segment).map {
+            NoteOutcome.Correct(it, played(it.pitch.midiNoteNumber, run.timeline.beatsOf(it.onset) + 0.05))
+        }
+        val phase = BeatPhase.estimate(BeatPhase.deviations(outcomes, expectedBeats))
+        return EvaluationResult(PerformanceEvaluator.EVALUATOR_VERSION, PitchResult(outcomes), RhythmAnalysis.analyse(outcomes, expectedBeats, phase))
+    }
+
+    /** The whole run committed: one early, one late, one pause in bar 1. */
+    val evaluation = RunEvaluation((1..run.lastSegment).map(::segmentResult), phaseBeats = 0.05)
+
+    /** Bars 1 and 2 committed, the cursor in bar 3. */
+    val partlyCommitted = RunEvaluation(evaluation.segments.take(2), phaseBeats = 0.05)
 
     val ready = RunState.Ready(run)
 
-    val countingIn = RunState.CountingIn(run, startedAtNanos = 0L, captured = emptyList(), lastSegment = run.lastSegment)
+    val countingIn = RunState.CountingIn(run, startedAtNanos = 0L, captured = emptyList())
 
-    val performing = RunState.Performing(run, startedAtNanos = 0L, captured = emptyList(), lastSegment = run.lastSegment)
+    val performing = RunState.Performing(run, startedAtNanos = 0L, captured = emptyList())
 
-    val stopping = performing.copy(lastSegment = 2)
+    val performingWithMarks = performing.copy(evaluation = partlyCommitted)
 
-    val grandStaffPerforming = RunState.Performing(grandStaffRun, startedAtNanos = 0L, captured = emptyList(), lastSegment = grandStaffRun.lastSegment)
+    val stopping = performing.copy(stopAfter = 2)
 
-    val evaluating = RunState.Evaluating(run, startedAtNanos = 0L, captured = emptyList(), lastSegment = run.lastSegment)
+    val grandStaffPerforming = RunState.Performing(grandStaffRun, startedAtNanos = 0L, captured = emptyList())
 
     val summary = RunState.Summary(
         run,
         startedAtNanos = 0L,
         captured = emptyList(),
         lastSegment = run.lastSegment,
-        evaluation = EvaluationResult(PerformanceEvaluator.EVALUATOR_VERSION, PitchResult(outcomes), rhythm),
+        evaluation = evaluation,
     )
 
-    val aborted = RunState.Aborted(run, AbortReason.MIDI_DISCONNECTED, startedAtNanos = 0L, captured = emptyList())
+    val aborted = RunState.Aborted(run, AbortReason.MIDI_DISCONNECTED, startedAtNanos = 0L, captured = emptyList(), lastSegment = 3, evaluation = partlyCommitted)
 
     val actions = PracticeActions(
         start = {},
@@ -193,6 +206,7 @@ private object PreviewData {
         setLookaheadBeats = {},
         setTempo = {},
         setMetronome = {},
+        setSegmentCount = {},
         setKey = {},
         setHands = {},
         setTheme = {},
@@ -233,6 +247,10 @@ private fun CountingInPreview() = PreviewScreen(PreviewData.countingIn)
 @Composable
 private fun PerformingPreview() = PreviewScreen(PreviewData.performing)
 
+@Preview(name = "Performing, bars 1 and 2 marked", showBackground = true)
+@Composable
+private fun PerformingWithMarksPreview() = PreviewScreen(PreviewData.performingWithMarks)
+
 @Preview(name = "Performing, stopping after bar 2", showBackground = true)
 @Composable
 private fun StoppingPreview() = PreviewScreen(PreviewData.stopping)
@@ -244,10 +262,6 @@ private fun GrandStaffPreview() = PreviewScreen(PreviewData.grandStaffPerforming
 @Preview(name = "Performing, grand staff, landscape", showBackground = true, widthDp = 800, heightDp = 360)
 @Composable
 private fun GrandStaffLandscapePreview() = PreviewScreen(PreviewData.grandStaffPerforming)
-
-@Preview(name = "Evaluating", showBackground = true)
-@Composable
-private fun EvaluatingPreview() = PreviewScreen(PreviewData.evaluating)
 
 @Preview(name = "Summary", showBackground = true)
 @Composable
@@ -321,7 +335,7 @@ private fun AnnotatedSummaryPreview() {
         Surface {
             Box(Modifier.width(360.dp).height(360.dp)) {
                 RunSummaryPage(PreviewData.run.score) { page ->
-                    noteMarks(page, PreviewData.run.score, PreviewData.outcomes, PreviewData.rhythm)
+                    noteMarks(page, PreviewData.run.score, PreviewData.evaluation.pitch.outcomes, PreviewData.evaluation.rhythm)
                 }
             }
         }

@@ -40,3 +40,19 @@ fun Score.firstMeasures(measureCount: Int): Score {
     val end = timeSignature.ticksPerMeasure * measureCount
     return copy(measureCount = measureCount, notes = notes.filter { it.end <= end })
 }
+
+/**
+ * Measure [measure] of this score on its own: one measure starting at tick 0, its notes' ids
+ * without [idPrefix] when they carry it. The inverse of [runScore] for one segment, and what
+ * turns a stored multi-measure score into segments. A note crossing the measure's end is a
+ * malformed input and is refused.
+ */
+fun Score.measureAsScore(measure: Int, idPrefix: String = ""): Score {
+    val start = measureStart(measure)
+    return copy(
+        measureCount = 1,
+        notes = notesInMeasure(measure).map { note ->
+            note.copy(id = note.id.removePrefix(idPrefix), onset = note.onset - start)
+        },
+    )
+}

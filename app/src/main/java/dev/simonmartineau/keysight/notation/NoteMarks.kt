@@ -57,11 +57,13 @@ sealed interface NoteMark {
  * they fall in and the staff whose middle line is nearest, placed by their onset on that
  * system's time axis; one that lands on an expected head is moved just right of it so both
  * stay legible. Matched notes carry their timing from [rhythm] when it was early or late; on
- * time needs no mark.
+ * time needs no mark, and neither does a note played too late to count: its bar already
+ * shows it missing.
  */
 fun noteMarks(page: PageLayout, score: Score, outcomes: List<NoteOutcome>, rhythm: RhythmResult? = null): List<NoteMark> =
-    outcomes.map { outcome ->
+    outcomes.mapNotNull { outcome ->
         when (outcome) {
+            is NoteOutcome.TooLate -> null
             is NoteOutcome.Correct -> NoteMark.Correct(outcome.expected.id, offBeat(rhythm, outcome.expected.id))
             is NoteOutcome.Missing -> NoteMark.Missing(outcome.expected.id)
             is NoteOutcome.WrongPitch -> {

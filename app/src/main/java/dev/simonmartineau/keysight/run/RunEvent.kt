@@ -1,14 +1,13 @@
 package dev.simonmartineau.keysight.run
 
-import dev.simonmartineau.keysight.evaluation.EvaluationResult
 import dev.simonmartineau.keysight.midi.MidiEvent
 
 /**
  * Everything that can happen to a run.
  *
- * Commands ([Start], [Evaluated], [Next]) are only legal in specific states and throw
- * otherwise, because sending one at the wrong time is a programming error. Inputs
- * ([ClockAdvanced], [MidiReceived], [Stop], [Abort]) arrive asynchronously and may race with a
+ * Commands ([Start], [Next]) are only legal in specific states and throw otherwise, because
+ * sending one at the wrong time is a programming error. Inputs ([ClockAdvanced],
+ * [MidiReceived], [Stop], [Abort], [Extended]) arrive asynchronously and may race with a
  * transition, so out-of-state ones are ignored.
  */
 sealed interface RunEvent {
@@ -28,9 +27,11 @@ sealed interface RunEvent {
      */
     data class Stop(val nowNanos: Long) : RunEvent
 
-    data class Abort(val reason: AbortReason) : RunEvent
+    /** The run cannot go on; [nowNanos] says which segment it got to. */
+    data class Abort(val reason: AbortReason, val nowNanos: Long) : RunEvent
 
-    data class Evaluated(val result: EvaluationResult) : RunEvent
+    /** More segments for a run that is still going: the source of an open-ended run delivering. */
+    data class Extended(val segments: List<Segment>) : RunEvent
 
     /** Build the next run, from a summary or an aborted run. */
     data class Next(val context: RunContext) : RunEvent

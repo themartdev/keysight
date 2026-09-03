@@ -106,7 +106,7 @@ ExerciseConfig     what the generator produces, see section 7
 - rhythmicPatterns
 ```
 
-Only the mode, the lookahead, the key, the staves, and the tempo are exposed in the first UI.
+Only the mode, the lookahead, the length, the key, the staves, and the tempo are exposed in the first UI.
 The rest are generator dimensions the difficulty controller moves on the player's behalf.
 
 ---
@@ -122,13 +122,13 @@ Built and verified:
 - rhythm evaluation with bounded beat-phase estimation, timing marks, tempo ratio, pauses, and continuity;
 - Room history with raw MIDI, score and config snapshots, evaluations keyed by evaluator version;
 - the grand staff, key signatures, systems and pages, the per-tick mask;
-- the continuous run's presentation: the run timeline with a silent segment 0, the visibility policy and its three presets, the mask on every frame, the cursor, the page turn, the run reducer and controller, bundled measures chained in one key.
+- the continuous run's presentation: the run timeline with a silent segment 0, the visibility policy and its three presets, the mask on every frame, the cursor, the page turn, the run reducer and controller, bundled measures chained in one key;
+- the continuous run's evaluation: segments committed one beat after they end from a three-segment window, the running beat phase, marks behind the cursor, runs and segments in the database with attempts migrated, the run summary, open-ended runs.
 
 Next, in the order of section 13:
 
-1. the continuous run's evaluation: incremental evaluation, the running beat phase, marks behind the cursor, the run-level data model, the run summary, open-ended runs;
-2. a seeded exercise generator, key selection, both hands;
-3. the per-segment difficulty controller.
+1. a seeded exercise generator, key selection, both hands;
+2. the per-segment difficulty controller.
 
 Then, one generator dimension at a time: eighth notes, rests, accidentals, wider ranges, chords, other meters.
 
@@ -176,23 +176,24 @@ Rhythm measures each matched note's onset error after removing the player's beat
 
 The beat phase absorbs device latency and the player's habitual lean, bounded to a fraction of a beat, so nobody appears late merely because their phone has output latency.
 
-### 5.2 What changes: incremental evaluation
+### 5.2 Incremental evaluation
 
 A run can be long or endless, so the evaluator works on a trailing window.
 
-- The window holds the last three segments' expected notes and the MIDI captured from the first of them onwards.
-- Alignment runs over the window; the oldest segment's outcomes are **committed** once the cursor has passed its end plus the capture tail.
-- Boundary notes therefore land in the right segment: a late final note of segment k is aligned with segment k's last expected note, not counted as extra in k+1.
+- Segment k is **committed** once the cursor has passed its end plus the capture tail, from a window of three segments: the notes of k-1 that were committed missing, k itself, and k+1.
+- The played notes of the window are those from the start of k-1 to the end of k's tail that no earlier commit has consumed, and only the MIDI that had arrived by the commit is seen, so a live run and a replay from history agree.
+- Boundary notes therefore land in the right segment: the downbeat of k+1 played in k's tail is that downbeat, not an extra of k; a final note of k that arrives after k was committed is absorbed by the missing note and is neither correct nor an extra.
+- Every played note ends up with exactly one committed outcome, every expected note with exactly one, and a commit is never revised.
 - Committing is what makes marks appear on the page and what feeds the difficulty controller.
 
-### 5.3 What changes: a running beat phase
+### 5.3 A running beat phase
 
 One phase per run is not enough.
 Without a click after the count-in, a player's pulse drifts over a long run, and a fixed phase would call every late-run note wrong.
 
-- The phase is re-estimated at every commit from the window's on-pulse deviations, with the previous phase as the prior and a bounded step per segment.
-- The tempo ratio is likewise a windowed estimate.
-- With the metronome throughout, the prior is strong and the phase barely moves; without it, the estimate follows the player.
+- The phase is re-estimated at every commit from the segment's on-pulse residuals, with the previous phase as the prior and a bounded step per segment: an eighth of a beat without the click, a fiftieth with it, the first segment setting the phase outright.
+- The tempo ratio is likewise a per-segment estimate; the run's is their mean.
+- With the metronome throughout, the phase stays within the latency bound and barely moves; without it, the estimate follows the player, a slow drift but never a jump.
 
 ### 5.4 Two hands
 
@@ -359,8 +360,8 @@ Run
 - clock anchor
 
 Segment
-- id, runId, index, startBeat
-- scoreJson                     the segment's score snapshot
+- id, runId, index              the segment starts at beat index * beatsPerMeasure
+- scoreJson                     the segment's own one-measure score snapshot
 - generatorVersion, seed, exerciseConfigJson, or the bundled exercise id
 
 MidiEvent
@@ -376,7 +377,7 @@ Invariants:
 
 - Raw MIDI is never discarded or overwritten.
 - A run's MIDI, its config, and its segments' scores are enough to re-evaluate the run with any evaluator version.
-- Schema changes ship with a migration and a migration test; the move from attempts to runs converts every existing attempt into a one-segment run.
+- Schema changes ship with a migration and a migration test; the move from attempts to runs converted every existing attempt into a run with one segment per measure, its raw MIDI untouched, and dropped only the whole-run evaluations that no segment could own, since evaluations are derived.
 
 ---
 
@@ -415,15 +416,14 @@ Presentation, built:
 - The run timeline with a silent segment 0, the `VisibilityPolicy` and its three presets, the mask from the beat on every frame, the cursor and the page turn.
 - The run reducer and controller replacing the attempt ones, with Stop ending the run after the current segment.
 - Content: bundled measures chained in one key.
-- The whole run is evaluated once at its end and stored as one row on the attempt tables, so history keeps every note until the evaluation half lands.
 - Device check: a fixed-length Flash run in both orientations, the page turning as the cursor enters the next system, notes disappearing on the beat.
 
-Evaluation, next:
+Evaluation, built:
 
-- Incremental evaluation on a trailing window, the running beat phase, marks appearing behind the cursor.
-- Schema version 3: runs, segments, MIDI by run, evaluations by segment; attempts migrated to one-segment runs.
-- Run summary, open-ended runs.
-- Device check: an open-ended Read-ahead run for five minutes without drift, marks on the right notes across page turns.
+- Incremental evaluation on a trailing window, committed by the reducer at each segment's capture tail, the running beat phase, marks appearing behind the cursor.
+- Schema version 3: runs, segments, MIDI by run, evaluations by segment; attempts migrated to runs of one segment per measure.
+- Run summary with the header, the score line, the remarks and the weakest bars; open-ended runs topped up from a segment source, with the run length in settings.
+- Device check: an open-ended Read-ahead run for five minutes without drift, marks on the right notes across page turns, the migration of a phone's existing history.
 
 ### Round 7: the generator
 

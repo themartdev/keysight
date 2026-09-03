@@ -17,6 +17,9 @@ interface RunSettings {
 object RunChoices {
     val TEMPOS_BPM = listOf(60.0, 72.0, 84.0, 96.0, 108.0, 120.0)
     val LOOKAHEAD_BEATS = RunConfig.LOOKAHEAD_LADDER_BEATS
+
+    /** Run lengths in segments; null is open-ended, the run going on until the player stops. */
+    val SEGMENT_COUNTS: List<Int?> = listOf(4, 8, 16, null)
 }
 
 class InMemoryRunSettings(initial: RunConfig = RunConfig.DEFAULT) : RunSettings {

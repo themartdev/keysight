@@ -20,6 +20,7 @@ import dev.simonmartineau.keysight.run.RunContext
 import dev.simonmartineau.keysight.run.RunController
 import dev.simonmartineau.keysight.run.RunState
 import dev.simonmartineau.keysight.run.Segment
+import dev.simonmartineau.keysight.run.SegmentSource
 import dev.simonmartineau.keysight.run.VisibilityMode
 import dev.simonmartineau.keysight.score.KeySignature
 import dev.simonmartineau.keysight.settings.ContentConfig
@@ -41,7 +42,8 @@ import kotlin.random.Random
  *
  * A run's content is bundled measures chained in one key: the selector picks them, each is
  * adapted to the content settings, and the adaptation always starts from the bundled
- * exercise, never from an already adapted score.
+ * exercise, never from an already adapted score. An open-ended run starts with a first batch
+ * and draws the rest from a [SegmentSource] over the same selector as it goes.
  */
 class PracticeViewModel(
     private val midi: MidiDeviceManager,
@@ -64,14 +66,15 @@ class PracticeViewModel(
     private val _loadError = MutableStateFlow<String?>(null)
     val loadError: StateFlow<String?> = _loadError.asStateFlow()
 
+    private var pack: List<Exercise> = emptyList()
     private var selector: ExerciseSelector? = null
 
-    /** The bundled exercises the waiting or running run was adapted from, one per segment. */
+    /** The bundled exercises the waiting or running run was adapted from, one per initial segment. */
     private var chosen: List<Exercise> = emptyList()
 
     init {
         viewModelScope.launch {
-            val pack = runCatching { exercises.all() }.getOrElse {
+            pack = runCatching { exercises.all() }.getOrElse {
                 _loadError.value = it.message ?: "could not load the exercises"
                 return@launch
             }
@@ -99,10 +102,10 @@ class PracticeViewModel(
     /** A new run of fresh measures. */
     fun next() {
         val selector = selector ?: return
-        load(selector.nextRun(settings.config.value.segmentCount, previous = chosen.lastOrNull()))
+        load(selector.nextRun(initialSegmentCount(), previous = chosen.lastOrNull()))
     }
 
-    /** The same measures again, from the start. */
+    /** The same measures again, from the start; an open-ended run repeats its first batch. */
     fun retry() {
         if (chosen.isEmpty()) return
         load(chosen)
@@ -120,6 +123,9 @@ class PracticeViewModel(
 
     fun setMetronome(mode: MetronomeMode) = updateConfig(settings.config.value.copy(metronome = mode))
 
+    /** [count] segments, or null for a run that goes on until Stop. */
+    fun setSegmentCount(count: Int?) = updateConfig(settings.config.value.copy(segmentCount = count))
+
     fun setKey(key: KeySignature) = updateContent(contentSettings.config.value.copy(keySignature = key))
 
     fun setHands(hands: Hands) = updateContent(contentSettings.config.value.copy(hands = hands))
@@ -128,23 +134,40 @@ class PracticeViewModel(
 
     private fun updateConfig(config: RunConfig) {
         settings.update(config)
-        if (state.value is RunState.Ready && chosen.isNotEmpty()) load(chosen)
+        reloadIfReady()
     }
 
     private fun updateContent(content: ContentConfig) {
         contentSettings.update(content)
-        if (state.value is RunState.Ready && chosen.isNotEmpty()) load(chosen)
+        reloadIfReady()
     }
+
+    /** Rebuilds the waiting run under the new settings, picking new measures when the length changed. */
+    private fun reloadIfReady() {
+        if (state.value !is RunState.Ready || chosen.isEmpty()) return
+        if (chosen.size == initialSegmentCount()) load(chosen) else next()
+    }
+
+    private fun initialSegmentCount(): Int =
+        settings.config.value.segmentCount ?: (SegmentSource.SEGMENTS_AHEAD + SegmentSource.SEGMENT_BATCH)
 
     /** Adapts [bundled] to the content settings, chains them into a run and hands it to the controller. */
     private fun load(bundled: List<Exercise>) {
         chosen = bundled
         val content = contentSettings.config.value
-        val segments = bundled.map { exercise ->
-            Segment(exercise.id, exercise.adaptedTo(content.keySignature, content.hands, random).score)
-        }
-        controller.load(RunContext(segments, settings.config.value))
+        val config = settings.config.value
+        val source = if (config.isOpenEnded) segmentSource(content) else null
+        controller.load(RunContext(bundled.map { it.segment(content) }, config), source)
     }
+
+    /** More measures for an open-ended run, chosen by the selector and adapted like the first ones. */
+    private fun segmentSource(content: ContentConfig) = SegmentSource { count, previous ->
+        val selector = selector ?: return@SegmentSource emptyList()
+        selector.nextRun(count, previous = pack.firstOrNull { it.id == previous.exerciseId }).map { it.segment(content) }
+    }
+
+    private fun Exercise.segment(content: ContentConfig): Segment =
+        Segment(id, adaptedTo(content.keySignature, content.hands, random).score)
 
     override fun onCleared() {
         controller.endSession()

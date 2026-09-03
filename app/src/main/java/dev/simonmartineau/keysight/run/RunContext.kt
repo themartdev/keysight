@@ -6,6 +6,9 @@ import dev.simonmartineau.keysight.timing.RunTimeline
 /**
  * What one run is made of: its segments, how it is presented, and the resulting score and
  * schedule. Segment k of the timeline is `segments[k - 1]`; segment 0 is the count-in.
+ *
+ * An open-ended run's segments are the ones known so far; [extended] adds the next ones as
+ * the run goes on, and the score and timeline grow with them.
  */
 data class RunContext(
     val segments: List<Segment>,
@@ -13,6 +16,7 @@ data class RunContext(
 ) {
     init {
         require(segments.isNotEmpty()) { "a run needs a segment" }
+        config.segmentCount?.let { require(segments.size == it) { "${segments.size} segments for a run of $it" } }
     }
 
     /** The whole run as one score, measure 0 resting. */
@@ -23,18 +27,22 @@ data class RunContext(
         timeSignature = score.timeSignature,
         segmentCount = segments.size + 1,
         metronomeThroughout = config.metronome == MetronomeMode.THROUGHOUT,
+        openEnded = config.isOpenEnded,
     )
 
     val policy: VisibilityPolicy get() = config.policy
 
-    /** The index of the last segment when the run goes to the end. */
+    /** The index of the last known segment: where the run ends unless it is open-ended and gets extended. */
     val lastSegment: Int get() = segments.size
+
+    /** The same run with [more] segments after the known ones. */
+    fun extended(more: List<Segment>): RunContext = if (more.isEmpty()) this else copy(segments = segments + more)
 
     /** The run as performed when it ended after [lastSegment]: its score and timeline cut there. */
     fun performed(lastSegment: Int): Performed {
         require(lastSegment in timeline.performedSegments) { "no performed segment $lastSegment in ${timeline.segmentCount}" }
-        return Performed(score.firstMeasures(lastSegment + 1), timeline.truncatedTo(lastSegment + 1))
+        return Performed(score.firstMeasures(lastSegment + 1), timeline.truncatedTo(lastSegment + 1), segments.take(lastSegment))
     }
 
-    data class Performed(val score: Score, val timeline: RunTimeline)
+    data class Performed(val score: Score, val timeline: RunTimeline, val segments: List<Segment>)
 }

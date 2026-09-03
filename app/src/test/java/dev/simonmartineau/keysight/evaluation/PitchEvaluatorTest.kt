@@ -36,7 +36,7 @@ class PitchEvaluatorTest {
         }
 
     private fun evaluate(events: List<MidiEvent>): PitchResult =
-        PerformanceEvaluator.evaluate(score, events, timeline, startedAt).pitch
+        PerformanceEvaluator.evaluate(score, timeline, startedAt, events).pitch
 
     private fun kinds(result: PitchResult): List<String> = result.outcomes.map { it::class.simpleName!! }
 
@@ -157,7 +157,7 @@ class PitchEvaluatorTest {
         val run = Fixtures.run(Fixtures.cdef, Fixtures.gfed)
         val events = performance(listOf(c4, d4, e4, f4, g4, f4, e4, d4))
 
-        val result = PerformanceEvaluator.evaluate(run.score, events, run.timeline, startedAt).pitch
+        val result = PerformanceEvaluator.evaluate(run.score, run.timeline, startedAt, events).pitch
 
         assertEquals(8, result.expectedCount)
         assertEquals(1.0, result.accuracy)
@@ -173,14 +173,14 @@ class PitchEvaluatorTest {
 
     @Test
     fun `the result carries the evaluator version`() {
-        assertEquals(PerformanceEvaluator.EVALUATOR_VERSION, PerformanceEvaluator.evaluate(score, emptyList(), timeline, startedAt).evaluatorVersion)
+        assertEquals(PerformanceEvaluator.EVALUATOR_VERSION, PerformanceEvaluator.evaluate(score, timeline, startedAt, emptyList()).segments.single().evaluatorVersion)
     }
 
     @Test
     fun `accuracy of an empty score is zero rather than undefined`() {
         val empty = Fixtures.run(Fixtures.oneMeasure())
 
-        assertEquals(0.0, PerformanceEvaluator.evaluate(empty.score, emptyList(), empty.timeline, startedAt).pitch.accuracy)
+        assertEquals(0.0, PerformanceEvaluator.evaluate(empty.score, empty.timeline, startedAt, emptyList()).pitch.accuracy)
     }
 
     @Test
@@ -192,7 +192,7 @@ class PitchEvaluatorTest {
             ),
         )
 
-        val result = PerformanceEvaluator.evaluate(reversed.score, performance(listOf(c4, d4)), reversed.timeline, startedAt).pitch
+        val result = PerformanceEvaluator.evaluate(reversed.score, reversed.timeline, startedAt, performance(listOf(c4, d4))).pitch
 
         assertEquals(listOf("1:a", "1:b"), result.outcomes.map { (it as NoteOutcome.Correct).expected.id })
     }

@@ -28,8 +28,8 @@ enum class VisibilityMode(val label: String) {
  * that switching back to Flash restores the ladder step the player was on.
  *
  * The count-in is always one segment, a measure of the score's meter, so the configuration
- * carries no count-in of its own. [segmentCount] is the number of performed segments; open-ended
- * runs are a later addition.
+ * carries no count-in of its own. [segmentCount] is the number of performed segments, or null
+ * for an open-ended run that keeps going until the player stops.
  */
 @Serializable
 data class RunConfig(
@@ -37,13 +37,15 @@ data class RunConfig(
     val metronome: MetronomeMode,
     val mode: VisibilityMode,
     val lookaheadBeats: Double,
-    val segmentCount: Int,
+    val segmentCount: Int?,
 ) {
     init {
         require(tempoBpm > 0.0) { "tempoBpm must be positive" }
         require(lookaheadBeats > 0.0) { "lookaheadBeats must be positive" }
-        require(segmentCount > 0) { "segmentCount must be positive" }
+        require(segmentCount == null || segmentCount > 0) { "segmentCount must be positive or open-ended" }
     }
+
+    val isOpenEnded: Boolean get() = segmentCount == null
 
     val policy: VisibilityPolicy
         get() = when (mode) {
