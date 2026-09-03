@@ -53,7 +53,6 @@ import dev.simonmartineau.keysight.score.Step
 import dev.simonmartineau.keysight.score.Ticks
 import dev.simonmartineau.keysight.score.TimeSignature
 import dev.simonmartineau.keysight.settings.ContentConfig
-import dev.simonmartineau.keysight.settings.ThemeMode
 import dev.simonmartineau.keysight.ui.notation.RunPage
 import dev.simonmartineau.keysight.ui.notation.RunSummaryPage
 import dev.simonmartineau.keysight.ui.theme.KeySightTheme
@@ -232,6 +231,8 @@ private object PreviewData {
 
     val aborted = RunState.Aborted(run, AbortReason.MIDI_DISCONNECTED, startedAtNanos = 0L, captured = emptyList(), lastSegment = 3, evaluation = partlyCommitted)
 
+    val cancelled = RunState.Aborted(run, AbortReason.CANCELLED, startedAtNanos = null, captured = emptyList(), lastSegment = null, evaluation = RunEvaluation.EMPTY)
+
     /** [movedRun] summarised: every bar clean, so the level lines are the only remarks. */
     val movedSummary = RunState.Summary(
         movedRun,
@@ -261,23 +262,38 @@ private object PreviewData {
         setKey = {},
         setHands = {},
         setAccompaniment = {},
-        setTheme = {},
         history = {},
+        settings = {},
     )
 }
 
 @Composable
-private fun PreviewScreen(state: RunState?, config: RunConfig = PreviewData.config, nextRun: Decision? = null) {
+private fun PreviewScreen(state: RunState?, config: RunConfig = PreviewData.config, nextRun: Decision? = null, connection: MidiConnection = PreviewData.connection) {
     KeySightTheme {
         PracticeContent(
             state = state,
-            connection = PreviewData.connection,
+            connection = connection,
             config = config,
             content = PreviewData.content,
-            theme = ThemeMode.SYSTEM,
             actions = PreviewData.actions,
             nextRun = nextRun,
         )
+    }
+}
+
+@Preview(name = "Ready, no keyboard", showBackground = true)
+@Composable
+private fun ReadyNoKeyboardPreview() = PreviewScreen(PreviewData.ready, connection = MidiConnection.NoDevice)
+
+@Preview(name = "Ready, landscape", showBackground = true, widthDp = 800, heightDp = 360)
+@Composable
+private fun ReadyLandscapePreview() = PreviewScreen(PreviewData.ready)
+
+@Preview(name = "Setup sheet's content", showBackground = true)
+@Composable
+private fun SetupPreview() {
+    KeySightTheme {
+        Surface { SetupContent(PreviewData.config, PreviewData.content.copy(hands = Hands.BOTH), level = "Up to thirds, five notes, quarter notes.", PreviewData.actions) }
     }
 }
 
@@ -344,6 +360,10 @@ private fun ReadyMovedPreview() = PreviewScreen(RunState.Ready(PreviewData.moved
 @Composable
 private fun AbortedPreview() = PreviewScreen(PreviewData.aborted)
 
+@Preview(name = "Aborted in the count-in", showBackground = true)
+@Composable
+private fun CancelledPreview() = PreviewScreen(PreviewData.cancelled)
+
 @Composable
 private fun PagePreview(score: Score, mask: Mask = Mask.NONE, cursorTicks: Ticks? = null, height: Int = 220) {
     KeySightTheme {
@@ -399,9 +419,10 @@ private fun AnnotatedSummaryPreview() {
     KeySightTheme {
         Surface {
             Box(Modifier.width(360.dp).height(360.dp)) {
-                RunSummaryPage(PreviewData.run.score) { page ->
-                    noteMarks(page, PreviewData.run.score, PreviewData.evaluation.pitch.outcomes, PreviewData.evaluation.rhythm)
-                }
+                RunSummaryPage(
+                    PreviewData.run.score,
+                    marks = { page -> noteMarks(page, PreviewData.run.score, PreviewData.evaluation.pitch.outcomes, PreviewData.evaluation.rhythm) },
+                )
             }
         }
     }

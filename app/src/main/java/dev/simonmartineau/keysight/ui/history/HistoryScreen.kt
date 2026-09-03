@@ -18,10 +18,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +36,7 @@ import dev.simonmartineau.keysight.history.StoredRun
 import dev.simonmartineau.keysight.ui.practice.levelLine
 import dev.simonmartineau.keysight.ui.practice.scoreLine
 import dev.simonmartineau.keysight.ui.practice.summaryHeader
+import dev.simonmartineau.keysight.ui.shell.ScreenScaffold
 
 /**
  * Past sessions, newest first. Arriving from practice expands [currentSessionId], so the
@@ -101,27 +100,6 @@ fun HistoryContent(
                     )
                 }
             }
-        }
-    }
-}
-
-/** A title row with a back button, and the content below it: the frame both history screens share. */
-@Composable
-internal fun ScreenScaffold(title: String, backLabel: String, onBack: () -> Unit, content: @Composable () -> Unit) {
-    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onBack) { Text(backLabel) }
-                Spacer(Modifier.width(8.dp))
-                Text(title, style = MaterialTheme.typography.titleLarge)
-            }
-            Spacer(Modifier.height(8.dp))
-            content()
         }
     }
 }

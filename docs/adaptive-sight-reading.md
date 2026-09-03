@@ -352,10 +352,12 @@ history/     the read side of history: stored runs at the current version, the s
 settings/    run and theme settings
 data/        Room entities, DAOs, migrations, mappers
 notation/    the layout engine: systems, pages, the mask by tick
-ui/          the Compose renderer, the practice screen, the history screen and the run page
+ui/          the shell (destinations, the back stack, the two frames), the renderer, practice, history, settings
 ```
 
-Navigation is a sealed `Screen` state in the activity, practice to history to a run's page and back, without a navigation library.
+Navigation is a back stack of sealed `Destination`s in `ui/shell`, practice at its root, without a navigation library.
+A destination is a music stand (`StageScaffold`: the window is the score, one strip of chrome above it, the system bars hidden, controls as sheets over the stage) or a page (`ScreenScaffold`: a title row and content inside the bars).
+A mode produces a run the evaluator judges and lives inside practice as a row of its setup sheet; a tool does not and is a destination of its own on the same frame.
 
 `run/` replaced `attempt/` in Round 6; `CLAUDE.md` names what each package holds today.
 
@@ -551,7 +553,7 @@ Built:
 - `history/`, pure: a stored run with the judgement of each committed segment, current or not against the evaluator version; a reader that re-evaluates an older run from its segments and raw MIDI as it is read and stores the result under the current version beside the old one; the session pooled by counts, the level at its first and last bar, every move as it was announced, and the weakest bars across the session, each naming its run.
 - The history screen: sessions newest first, the practice screen's own expanded on arrival as the session summary, each expandable to its summary and its runs (time, length, mode and lookahead, key and hands, the level line, the score line, why it stopped); every run, move and weakest bar opening the run's page, the practice summary of that run with the score open and its marks.
 - Navigation as a sealed screen state in the activity, back retracing the step; no schema change.
-- Device check: the History button after a run, this session expanded with its runs landing, a run page's marks on the right notes, back returning to the list and then to practice, a rotation on each screen, and a phone's older history opened and re-evaluated once.
+- Device check: History from the strip's menu after a run, this session expanded with its runs landing, a run page's marks on the right notes, back returning to the list and then to practice, a rotation on each screen, and a phone's older history opened and re-evaluated once.
 
 ### After
 

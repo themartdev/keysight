@@ -90,15 +90,26 @@ One module, packages by concern, all under `dev.simonmartineau.keysight`:
   `BeamElement`s over eighths that share a beat and rests derived from the silences on each
   staff (`restsFilling` is the splitting rule), `Mask` (which score time is hidden), and
   `noteMarks`, the one place evaluation outcomes meet notation.
-- `di/` `AppContainer`. `Screen` and `MainActivity` are the navigation: a sealed state,
-  practice to history to a run's page and back, no library. `ui/notation/` the Compose Canvas
-  renderer (`RunPage`, the two systems around the beat; `RunSummaryPage`, every system in a
-  scroll; `drawPage`, `drawSystem`) that draws a `PageLayout` with the bundled Bravura font.
-  `ui/practice/` the practice screen, its view model, `RunSummaryContent` (the summary of one
-  run, shown when a run ends and again from history) and `PracticePreviews` with one preview
-  per screen state. `ui/history/` the history screen (sessions newest first, the practice
-  screen's own expanded on arrival as the session summary, then its runs), the run page, the
-  thin `HistoryViewModel`, `HistoryText` and `HistoryPreviews`.
+- `di/` `AppContainer`. `MainActivity` hands it to `ui/shell/`, the navigation and the frames,
+  no library: `AppShell` (the theme, the back stack and the destination on top of it),
+  `Destination` (practice, the root that never leaves the stack; history; a run's page;
+  settings), `BackStack` (a saved list with one `BackHandler`), `StageScaffold` (the frame of
+  every destination that is a music stand: the window is the stage, the one strip above it is
+  all the chrome, and `ImmersiveEffect` hides the system bars, so the stage's box is the same
+  whatever the state), `ScreenScaffold` (the frame of every destination that is a page: a
+  title row with a back button, inside the system bars) and `MidiStatus`. `ui/notation/` the
+  Compose Canvas renderer (`RunPage`, the two systems around the beat; `RunSummaryPage`, every
+  system in a scroll with content above and below it; `drawPage`, `drawSystem`) that draws a
+  `PageLayout` with the bundled Bravura font. `ui/practice/` the practice destination:
+  `PracticeScreen` binding the view model, `PracticeContent` (the strip and the stage by run
+  state over `StageScaffold`, one frame loop giving the beat to both), `SetupSheet` (the run's
+  setup as a sheet over the stage, every row a list), `RunSummaryContent` (the annotated page
+  with lines above and below in one scroll, shown when a run ends and again from history),
+  `ResultText` (the words, pure) and `PracticePreviews` with one preview per state.
+  `ui/history/` the history screen (sessions newest first, the practice destination's own
+  expanded on arrival as the session summary, then its runs), the run page, the thin
+  `HistoryViewModel`, `HistoryText` and `HistoryPreviews`. `ui/settings/` the settings
+  destination: the theme and the keyboard.
 - `app/src/main/res/font/bravura.otf` is Bravura 1.482 (SMuFL, OFL); its licence ships in
   `app/src/main/assets/licenses/`. Glyph metrics are the table in `BravuraMetrics`, checked
   against the font file by `BravuraMetricsTest`.
@@ -211,14 +222,23 @@ from this environment.
   accompaniment, mode, tempo and length are the player's. The state (level and last moved) is
   one row; the window is derived from stored evaluations, so both survive a restart. A new
   dimension is a `Dimension` entry, its `Ladder` and its case in `DifficultyController.step`.
-  What moved is always on screen: the Ready line names the level, the summary names every bar
-  the level changed at and the move for the next run, and the lookahead chip moves.
+  What moved is always on screen: the strip's run line names the level, the summary names
+  every bar the level changed at and the move for the next run, and the lookahead chip in the
+  setup sheet moves.
 - A segment is committed once, one beat after it ends, and never revised: a commit sees only
   the events that had arrived by then, so a live run and a replay from history agree. Every
   played note gets exactly one committed outcome (a note that arrives after its bar was judged
   is `TooLate`, neither correct nor extra) and every expected note exactly one. The phase steps
   by at most `BeatPhase.MAX_STEP_WITHOUT_CLICK_BEATS` per segment, a fifth of that under the
   click, so a drift is followed and a jump is not.
+- A destination is a music stand or a page. A music stand is a `StageScaffold`: the stage is
+  the whole window under hidden system bars, the strip above it is all the chrome, and anything
+  with many controls comes as a sheet over the stage, never as a sibling that would shrink it.
+  The stage's box is the same in every run state, so a score fitted to it never moves between
+  Ready, Running and the summary. A mode is anything that produces a run the evaluator judges
+  and history stores: it lives inside practice as a row of the setup sheet. A tool is anything
+  that does not: a `Destination` of its own on the same frame, reached from the strip's menu.
+  Practice is the root of the back stack and never leaves it, so the session keeps its meaning.
 - Notation is laid out in staff spaces by `ScoreLayoutEngine`, y up from the bottom line of the
   system's top staff, each staff carrying its own baseline offset; only `ui/notation` converts
   to pixels. The staff, clefs, signatures and barlines are always drawn; a `Mask` hides notes

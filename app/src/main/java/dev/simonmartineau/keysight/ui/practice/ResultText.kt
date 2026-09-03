@@ -52,13 +52,34 @@ fun continuityLabel(continuity: Continuity): String = when (continuity) {
 }
 
 /** What the run was: `8 bars   Flash 2 beats   C major   right hand`. */
-fun summaryHeader(config: RunConfig, score: Score, performedSegments: Int): String {
-    val mode = when (config.mode) {
-        VisibilityMode.FLASH -> "Flash ${config.lookaheadBeats.beatsLabel()} ${if (config.lookaheadBeats == 1.0) "beat" else "beats"}"
-        VisibilityMode.READ_AHEAD, VisibilityMode.OPEN_SCORE -> config.mode.label
-    }
-    return listOf(barsLabel(performedSegments), mode, score.keySignature.majorName, handsLabel(score)).joinToString("   ")
+fun summaryHeader(config: RunConfig, score: Score, performedSegments: Int): String =
+    listOf(barsLabel(performedSegments), modeLabel(config), score.keySignature.majorName, handsLabel(score)).joinToString("   ")
+
+/**
+ * What the run about to start is, for the strip: `8 bars   Flash 2 beats   C major   right hand   80 bpm`,
+ * an open-ended run being `Open`.
+ */
+fun readyLine(config: RunConfig, score: Score): String =
+    listOf(config.segmentCount?.let(::barsLabel) ?: "Open", modeLabel(config), score.keySignature.majorName, handsLabel(score), tempoLabel(config.tempoBpm))
+        .joinToString("   ")
+
+/** The mode with its lookahead when the lookahead applies: `Flash 2 beats`, `Read ahead`. */
+fun modeLabel(config: RunConfig): String = when (config.mode) {
+    VisibilityMode.FLASH -> "Flash ${config.lookaheadBeats.beatsLabel()} ${if (config.lookaheadBeats == 1.0) "beat" else "beats"}"
+    VisibilityMode.READ_AHEAD, VisibilityMode.OPEN_SCORE -> config.mode.label
 }
+
+fun tempoLabel(bpm: Double): String = "${bpm.toInt()} bpm"
+
+/** `27 / 30 notes correct`. */
+fun notesLine(pitch: PitchResult): String = "${pitch.correctCount} / ${pitch.expectedCount} notes correct"
+
+/**
+ * The remarks under a summary's page, only those that earned their place: the performance
+ * remarks, the weakest bars, and the bars the level changed at.
+ */
+fun summaryRemarks(evaluation: RunEvaluation, segments: List<Segment>): List<String> =
+    remarks(evaluation.pitch, evaluation.rhythm) + listOfNotNull(weakestBarsLine(evaluation)) + levelChangeLines(segments)
 
 fun barsLabel(bars: Int): String = if (bars == 1) "1 bar" else "$bars bars"
 

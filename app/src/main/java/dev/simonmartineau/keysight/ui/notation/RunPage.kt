@@ -3,6 +3,7 @@ package dev.simonmartineau.keysight.ui.notation
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -11,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
@@ -92,13 +94,17 @@ fun RunPage(
 
 /**
  * The whole run at the staff space its pages were read at, every system top to bottom in a
- * vertical scroll, annotated with [marks]: the summary shows exactly what was read.
+ * vertical scroll, annotated with [marks]: the summary shows exactly what was read. The fit
+ * is to the box, so in the box the run was read in the staff is the size it was; [above] and
+ * [below] scroll with the page and take no room from the fit.
  */
 @Composable
 fun RunSummaryPage(
     score: Score,
     modifier: Modifier = Modifier,
     marks: (PageLayout) -> List<NoteMark> = { emptyList() },
+    above: @Composable ColumnScope.() -> Unit = {},
+    below: @Composable ColumnScope.() -> Unit = {},
 ) {
     val typeface = rememberBravura()
     val colors = staffColors()
@@ -114,12 +120,14 @@ fun RunSummaryPage(
         val staffSpace = fitted.staffSpace
         val pageHeight = with(density) { (page.height * staffSpace).toFloat().toDp() }
 
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+            above()
             Canvas(Modifier.fillMaxWidth().height(pageHeight)) {
                 val left = (size.width - page.width * staffSpace).toFloat() / 2
                 val origin = Offset(left, (page.top * staffSpace).toFloat())
                 drawPage(page, page.systems.indices, staffSpace, origin, typeface, colors, pageMarks)
             }
+            below()
         }
     }
 }
